@@ -1,0 +1,69 @@
+{
+  "three_timeline": {
+    "name": "时间轴三牌",
+    "description": "过去影响、当前状态、未来走向",
+    "scene_tags": ["general", "career", "romance", "wealth", "growth"],
+    "positions": [
+      {"name": "过去", "is_key": false, "upright_bias": 0.60, "semantic": "影响当前局面的过去因素或根源"},
+      {"name": "现在", "is_key": true,  "upright_bias": 0.70, "semantic": "当前核心议题与能量状态"},
+      {"name": "未来", "is_key": true,  "upright_bias": 0.65, "semantic": "当前趋势下的可能走向"}
+    ]
+  },
+  "three_relationship": {
+    "name": "关系三牌",
+    "description": "适合感情、合作、双方互动分析",
+    "scene_tags": ["romance", "relationship"],
+    "positions": [
+      {"name": "你",   "is_key": true,  "upright_bias": 0.70, "semantic": "你在这段关系中的能量与内在状态"},
+      {"name": "对方", "is_key": true,  "upright_bias": 0.65, "semantic": "对方当前的能量、意图与状态"},
+      {"name": "关系", "is_key": false, "upright_bias": 0.60, "semantic": "两人之间的连接质量与动态走向"}
+    ]
+  },
+  "three_options": {
+    "name": "选项三牌",
+    "description": "两条路径的直接对比与建议，适合岔路口决策",
+    "scene_tags": ["decision"],
+    "positions": [
+      {"name": "选项A", "is_key": false, "upright_bias": 0.60, "semantic": "第一条路径的能量与可能结果"},
+      {"name": "选项B", "is_key": false, "upright_bias": 0.60, "semantic": "第二条路径的能量与可能结果"},
+      {"name": "建议",  "is_key": true,  "upright_bias": 0.70, "semantic": "牌阵给出的整体建议方向"}
+    ]
+  },
+  "single": {
+    "name": "单张指引",
+    "description": "日常能量快照、简单问答、当下聚焦",
+    "scene_tags": ["general"],
+    "positions": [
+      {"name": "当前指引", "is_key": true, "upright_bias": 0.70, "semantic": "当前能量与核心答案"}
+    ]
+  },
+  "five_diamond": {
+    "name": "五牌菱形",
+    "description": "多维分析，适合成长、复杂决策、全局审视",
+    "scene_tags": ["growth", "decision", "career", "general"],
+    "positions": [
+      {"name": "核心", "is_key": true,  "upright_bias": 0.70, "semantic": "核心议题或当前能量焦点"},
+      {"name": "根源", "is_key": false, "upright_bias": 0.60, "semantic": "深层原因与潜意识动力"},
+      {"name": "阻力", "is_key": false, "upright_bias": 0.60, "semantic": "当前的挑战、障碍或需克服的"},
+      {"name": "潜力", "is_key": false, "upright_bias": 0.60, "semantic": "隐藏的资源、优势或机会"},
+      {"name": "建议", "is_key": true,  "upright_bias": 0.65, "semantic": "最佳行动方向与结果预示"}
+    ]
+  },
+  "celtic": {
+    "name": "凯尔特十字",
+    "description": "最全面的综合性牌阵，适合复杂问题的多维度解析",
+    "scene_tags": ["general", "romance", "career", "growth", "relationship"],
+    "positions": [
+      {"name": "核心",       "is_key": true,  "upright_bias": 0.70, "semantic": "问题的核心能量"},
+      {"name": "交叉",       "is_key": false, "upright_bias": 0.60, "semantic": "帮助或阻碍的力量"},
+      {"name": "意识目标",   "is_key": false, "upright_bias": 0.60, "semantic": "意识层面希望达成的"},
+      {"name": "根基过去",   "is_key": false, "upright_bias": 0.60, "semantic": "深层过去，奠定当前基础的"},
+      {"name": "近期过去",   "is_key": true,  "upright_bias": 0.65, "semantic": "正在消退的影响"},
+      {"name": "近期未来",   "is_key": false, "upright_bias": 0.60, "semantic": "即将进入的能量"},
+      {"name": "自我",       "is_key": false, "upright_bias": 0.60, "semantic": "你的内在状态与出发点"},
+      {"name": "环境",       "is_key": false, "upright_bias": 0.60, "semantic": "外部因素与他人的影响"},
+      {"name": "希望与恐惧", "is_key": false, "upright_bias": 0.60, "semantic": "内心深处的期待与担忧"},
+      {"name": "结果",       "is_key": true,  "upright_bias": 0.70, "semantic": "当前趋势下最可能的结局"}
+    ]
+  }
+}
