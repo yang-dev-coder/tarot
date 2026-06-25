@@ -5,7 +5,7 @@ main_console.py —— 重构版
   1. Agent 0 在抽牌前运行，解析意图并路由牌阵
   2. 展示"系统为你选择了 XX 牌阵"，用户可确认或切换
   3. TarotEngine 注入到 AgentPipeline，供 Agent 0 查询可用牌阵
-  4. 打印流水线进度时标注五层 Agent 名称
+  4. 打印流水线进度时标注四层 Agent 名称（Agent 0/A/B/C）
 """
 
 import os
@@ -80,8 +80,8 @@ def start_tarot_session():
         print("[系统] ⏳ 触发密码学安全抽牌引擎...")
         draw_result = engine.draw_cards(spread_key=spread_key, question=user_input)
 
-        print(f"[系统] 🎴 抽牌完成！种子 Seed: {draw_result['seed'][:18]}...")
-        print(f"[系统] 🕐 时段因子: {draw_result['time_factor']}  |  牌阵: {draw_result['spread_name']}")
+        print(f"[系统] 🎴 抽牌完成！种子 Seed: {str(draw_result['seed'])[:18]}...")
+        print(f"[系统] 🕐 牌阵: {draw_result['spread_name']}")
         print("-" * 52)
         print("🃏  【你抽中的牌阵】")
         for card in draw_result["cards"]:
@@ -93,24 +93,33 @@ def start_tarot_session():
                   f"  →  {card_info.get('keywords','')}")
         print("-" * 52)
 
-        print("[流水线] 🚀 启动五层 Multi-Agent 链：")
-        print("         Agent A（安全审查）→ Agent B（结构推理）")
-        print("         → Agent N（叙事编织）→ Agent C（共情解读）")
+        print("[流水线] 🚀 启动四层 Multi-Agent 链：")
+        print("         Agent A（安全审查）→ Agent B（结构推理 + 叙事骨架）→ Agent C（实用解读）")
         print("大模型深度推演中，请稍候...\n")
 
         response = pipeline.run_pipeline(user_input, draw_result)
 
-        if response["status"] == "BLOCKED":
-            print("❌ 【系统安全拦截】")
-            print(f"⚠️  {response['message']}\n")
+        # run_pipeline 现在是 generator，按协议消费
+        final_data = ""
+        status = None
+        for event in response:
+            if event.get("status") == "BLOCKED":
+                print("❌ 【系统安全拦截】")
+                print(f"⚠️  {event['message']}\n")
+                status = "BLOCKED"
+                break
+            elif event.get("status") == "STREAMING":
+                print("✦ " + "─" * 48 + " ✦")
+            elif "chunk" in event:
+                print(event["chunk"], end="", flush=True)
+            elif event.get("status") == "SUCCESS":
+                final_data = event.get("data", "")
+                status = "SUCCESS"
+                print("\n✦ " + "─" * 48 + " ✦\n")
 
-        elif response["status"] == "SUCCESS":
-            print("✦ " + "─" * 48 + " ✦")
-            print(response["data"])
-            print("✦ " + "─" * 48 + " ✦\n")
-
+        if status == "SUCCESS":
             # ── 人类反馈环 ────────────────────────────────────────────────────
-            current = response["data"]
+            current = final_data
             while True:
                 feedback = input("[追问] 有补充信息或想深度追问？(回车跳过): ").strip()
                 if not feedback:

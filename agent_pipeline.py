@@ -62,6 +62,36 @@ class AgentPipeline:
                 })
             return "【系统提示】由于虚空能量波动（网络异常），请重试。"
 
+    def stream_llm(self, system_instruction, user_prompt, temperature=0.2):
+        """流式调用，专供 Agent C 使用。
+        实时 yield 文本块，调用方负责打印/转发，最终返回完整文本。
+        """
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user",   "content": user_prompt},
+                ],
+                temperature=temperature,
+                stream=True,
+            )
+            full_text = []
+            for chunk in resp:
+                delta = chunk.choices[0].delta.content or ""
+                if delta:
+                    full_text.append(delta)
+                    yield delta
+            # 末尾 yield 完整文本（用 sentinel 标记，供调用方提取）
+            # Fix 6：无论流是否正常结束，sentinel 都在循环后无条件 yield，
+            # 避免网络中途截断（非异常）时 full_text_parts 保持为空
+            yield "\x00" + "".join(full_text)
+        except Exception as e:
+            print(f"LLM 流式调用异常: {e}")
+            msg = "【系统提示】由于虚空能量波动（网络异常），请重试。"
+            yield msg
+            yield "\x00" + msg
+
     def _safe_parse_json(self, raw, fallback=None):
         """带防抖的 JSON 解析，移除 LLM 可能误带的 markdown 包裹"""
         try:
@@ -180,7 +210,8 @@ class AgentPipeline:
         )
         res_a_str = self.call_llm(system_a, f"用户提问: {user_input}",
                                   response_format_json=True, temperature=0.1)
-        res_a = self._safe_parse_json(res_a_str, {"status": "PASS"})
+        res_a = self._safe_parse_json(res_a_str, {"status": "BLOCKED",
+                                                   "redirect_message": "安全审查模块返回格式异常，仪式已中止。"})
         if res_a.get("status") == "REJECTED":
             return {"status": "BLOCKED", "message": res_a.get("redirect_message")}
 
@@ -216,7 +247,7 @@ class AgentPipeline:
             "1. elemental_dignities → 判断相邻牌的能量关系（相生/相克/强化）\n"
             "2. classic_combinations → 若命中，必须在 logic_chain 中明确引用组合名称\n"
             "3. fools_journey → 大牌间的愚人之旅演进关系\n"
-            "4. narrative_conflicts → 牌阵中的能量剧烈反转点\n"
+            "4. adjacent_major_pairs → 相邻大牌对的事实性描述，据此判断叙事张力与能量跳跃\n"
             "5. suit_concentration / missing_suits → 整体能量偏向与缺席领域\n\n"
 
             "【第二部分：叙事骨架】\n"
@@ -256,15 +287,13 @@ class AgentPipeline:
             }
 
         # ======================================================================
-        # 4. Agent C：实用解读师
+        # 4. Agent C：实用解读师（流式输出）
         #
-        # 设计意图：
-        #   - 风格：实用清单型，对标"财运咨询顾问"而非"叙事洞察师"
-        #   - 结构：开篇总结 → 逐张解读 → 综合判断 → 分点行动建议
-        #   - Emoji：只用于分类标题符号，不用于正文情绪装饰
-        #   - 逐张解读：必须保留，让用户确认 AI 真的看懂了每张牌
-        #   - 行动建议：分点列出，有时限，有具体动作
-        #   - temperature 0.72 保持不变
+        # run_pipeline 在此处变为 generator：
+        #   - 先 yield {"status": "STREAMING"} 作为开始信号
+        #   - 然后逐块 yield {"chunk": delta}
+        #   - 最后 yield {"status": "SUCCESS", "data": full_text} 作为结束信号
+        # main_console 按此协议消费即可；process_feedback 不受影响（仍同步）
         # ======================================================================
         system_c = (
             "你是一位经验丰富的塔罗解读师，风格务实清晰，擅长给出可执行的指引。\n"
@@ -305,11 +334,33 @@ class AgentPipeline:
 
             "【篇幅】总字数 350-500 字，信息密度优先，不写过渡废话。"
         )
+        # Fix 7：Agent C 已经通过 res_b.card_analysis 拿到了完整的技术推理。
+        # contexts 里的 keywords/description/pip_stage/court_role 是兜底参考，
+        # 只保留这些轻量字段传入 Agent C，去掉与 res_b 重叠的 archetype/thoth_view 等大字段，
+        # 凯尔特十字 10 张时可削减约 30-40% 的 user_prompt_c token 量。
+        contexts_slim = [
+            {k: v for k, v in ctx.items()
+             if k in ("card_id", "name", "position_name", "orientation",
+                      "keywords", "description", "pip_stage", "court_role", "is_major")}
+            for ctx in contexts
+        ]
         user_prompt_c = (
             f"用户问题：{user_input}\n\n"
             f"【结构推理 + 叙事骨架（Agent B）】:\n{json.dumps(res_b, ensure_ascii=False)}\n\n"
-            f"【原始牌义备查】:\n{json.dumps(contexts, ensure_ascii=False)}"
+            f"【原始牌义备查（兜底用）】:\n{json.dumps(contexts_slim, ensure_ascii=False)}"
         )
-        res_c = self.call_llm(system_c, user_prompt_c, temperature=0.72)
 
-        return {"status": "SUCCESS", "data": res_c}
+        # 流式 generator 协议
+        yield {"status": "STREAMING"}
+        full_text_parts = []
+        accumulated = []   # Fix 6：同步累积所有 chunk，作为 sentinel 缺失时的兜底
+        for chunk in self.stream_llm(system_c, user_prompt_c, temperature=0.72):
+            if chunk.startswith("\x00"):
+                # sentinel：完整文本，不打印，只收集
+                full_text_parts = [chunk[1:]]
+            else:
+                accumulated.append(chunk)
+                yield {"chunk": chunk}
+        # Fix 6：若流在 sentinel 到达前截断（非异常），用累积内容兜底
+        final_text = full_text_parts[0] if full_text_parts else "".join(accumulated)
+        yield {"status": "SUCCESS", "data": final_text}

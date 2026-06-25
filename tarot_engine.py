@@ -1,64 +1,28 @@
 """
-tarot_engine.py —— 重构版
+tarot_engine.py —— 公平抽牌版
 
-核心改动：
-  1. 牌阵从硬编码 SPREADS 字典迁移到外部 spreads_config.json（数据驱动）
-  2. 新增 get_available_spreads(scene_type) 供 Agent 0 路由使用
-  3. 新增 get_spread_meta(spread_key) 供 main_console 展示牌阵信息
-  4. position_semantic 字段随 draw_result 传递，供 Agent B 使用
-  5. 其余逻辑（加权/时段因子/正逆位概率）保持不变
+抽牌逻辑与真实物理塔罗牌一致：
+  1. 78张牌等概率（无大牌加权、无时段因子、无关键位置权重）
+  2. 正逆位 50/50（rng.choice，不受 upright_bias 影响）
+  3. 不放回抽样（与实体牌相同）
+  4. seed 由 os.urandom(32) 生成，保存后可完整复现同一次抽牌
+
+其余功能保持不变：
+  - spreads_config.json 数据驱动
+  - get_available_spreads / get_spread_meta 供外部调用
+  - position_semantic 随 draw_result 传递
 """
 
-import hashlib, json, os, random, time, uuid
-from datetime import datetime
+import json, os, random, time, uuid
 
 
 # ── 常量 ──────────────────────────────────────────────────────────────────────
 MAJOR_ARCANA_IDS = set(range(22))
 
-ELEMENT_GROUPS = {
-    "火": set(range(22, 36)),
-    "水": set(range(36, 50)),
-    "风": set(range(50, 64)),
-    "土": set(range(64, 78)),
-}
 
-TIME_BOOSTS = {
-    "morning":   {"火", "风"},
-    "afternoon": {"水", "土"},
-    "night":     {"major"},
-}
-
-
-def _get_time_factor(hour=None):
-    h = datetime.now().hour if hour is None else hour
-    if 6 <= h < 12:
-        return "morning"
-    elif h < 18:
-        return "afternoon"
-    else:
-        return "night"
-
-
-def _card_weight(card_id, is_key, boosted):
-    is_major = card_id in MAJOR_ARCANA_IDS
-    base = (56 / 22) * 0.84 if is_major else 1.0
-    if is_major and is_key:
-        base *= 1.2
-    hit = False
-    if "major" in boosted and is_major:
-        hit = True
-    else:
-        for elem, ids in ELEMENT_GROUPS.items():
-            if elem in boosted and card_id in ids:
-                hit = True
-                break
-    return base * (1.08 if hit else 1.0)
-
-
-def _make_seed(question=""):
-    data = os.urandom(32) + str(time.time_ns()).encode() + question.encode()
-    return int(hashlib.sha256(data).hexdigest()[:16], 16)
+def _make_seed():
+    """用 os.urandom 生成种子，保存后可完整复现同一次抽牌。"""
+    return int.from_bytes(os.urandom(32), "big")
 
 
 class TarotEngine:
@@ -76,9 +40,9 @@ class TarotEngine:
                     "description": "过去 / 现在 / 未来",
                     "scene_tags": ["general"],
                     "positions": [
-                        {"name": "过去", "is_key": False, "upright_bias": 0.60, "semantic": "过去因素"},
-                        {"name": "现在", "is_key": True,  "upright_bias": 0.70, "semantic": "当前状态"},
-                        {"name": "未来", "is_key": True,  "upright_bias": 0.65, "semantic": "可能走向"},
+                        {"name": "过去", "is_key": False, "semantic": "过去因素"},
+                        {"name": "现在", "is_key": True,  "semantic": "当前状态"},
+                        {"name": "未来", "is_key": True,  "semantic": "可能走向"},
                     ]
                 }
             }
@@ -103,14 +67,17 @@ class TarotEngine:
         }
 
     def draw_cards(self, spread_key="three_timeline", question="",
-                   seed=None, hour=None, spread_size=None):
+                   seed=None, spread_size=None):
         """
-        抽牌主方法。
+        抽牌主方法。与真实物理塔罗牌行为一致：
+          - 78张等概率，不放回
+          - 正逆位各 50%
+          - seed 保存后可完整复现
+
         spread_key  : 牌阵类型，对应 spreads_config.json 的 key
-        question    : 用户问题，参与种子生成
-        seed        : 指定种子可复现
-        hour        : 覆盖当前小时（测试用）
-        spread_size : 向下兼容旧调用，不推荐使用
+        question    : 仅记录，不参与抽牌逻辑
+        seed        : 整数种子，指定后可复现；省略则随机生成
+        spread_size : 向下兼容旧调用，截取前 N 个位置
         """
         if spread_key not in self.spreads:
             spread_key = "three_timeline"
@@ -119,35 +86,30 @@ class TarotEngine:
         if spread_size is not None:
             positions = positions[:spread_size]
 
-        final_seed  = _make_seed(question) if seed is None else seed
-        time_factor = _get_time_factor(hour)
-        boosted     = TIME_BOOSTS[time_factor]
-
+        final_seed = _make_seed() if seed is None else seed
         rng  = random.Random(final_seed)
         pool = list(self.deck)
         cards = []
 
         for i, pos in enumerate(positions):
-            weights = [_card_weight(cid, pos["is_key"], boosted) for cid in pool]
-            picked  = rng.choices(pool, weights=weights, k=1)[0]
+            picked = rng.choice(pool)                          # 等概率
             pool.remove(picked)
-            orientation = "Upright" if rng.random() < pos["upright_bias"] else "Reversed"
+            orientation = rng.choice(["Upright", "Reversed"]) # 50/50
             cards.append({
-                "position":           i + 1,
-                "position_name":      pos["name"],
-                "position_semantic":  pos.get("semantic", ""),
-                "card_id":            picked,
-                "orientation":        orientation,
-                "is_major":           picked in MAJOR_ARCANA_IDS,
+                "position":          i + 1,
+                "position_name":     pos["name"],
+                "position_semantic": pos.get("semantic", ""),
+                "card_id":           picked,
+                "orientation":       orientation,
+                "is_major":          picked in MAJOR_ARCANA_IDS,
             })
 
         return {
             "session_id":  f"tarot_{uuid.uuid4().hex[:8]}",
             "timestamp":   time.time(),
-            "seed":        hex(final_seed),
+            "seed":        final_seed,   # 整数，可直接传回 draw_cards(seed=...) 复现
             "spread":      spread_key,
             "spread_name": self.spreads[spread_key].get("name", spread_key),
-            "time_factor": time_factor,
             "question":    question,
             "cards":       cards,
         }

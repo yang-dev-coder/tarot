@@ -87,25 +87,33 @@ COURT_STAGE = {
     14: "国王——元素能量的掌控者，成熟、权威、向外施为",
 }
 
+# key 使用 card_id 的 frozenset，与牌名字符串格式完全解耦
+# 大阿卡纳 id：愚者=0 魔术师=1 女祭司=2 女皇=3 皇帝=4 教皇=5 恋人=6
+#              战车=7 力量=8 隐士=9 命运之轮=10 正义=11 倒吊人=12
+#              死神=13 节制=14 恶魔=15 高塔=16 星星=17 月亮=18
+#              太阳=19 审判=20 世界=21
+# 小阿卡纳：权杖 22-35 / 圣杯 36-49 / 宝剑 50-63 / 星币 64-77
+#   各花色内：Ace=+0, 2=+1 … 10=+9, 侍从=+10, 骑士=+11, 王后=+12, 国王=+13
+#   示例：宝剑三 = 50 + (3-1) = 52
 CLASSIC_COMBOS = {
-    frozenset(["死神", "星星"]):    "死神+星星：黑暗后的曙光——旧我已死，新的希望正在升起",
-    frozenset(["高塔", "星星"]):    "高塔+星星：崩塌后的疗愈——突如其来的破坏为真正的重建扫清道路",
-    frozenset(["死神", "审判"]):    "死神+审判：双重蜕变——不仅是结束与重生，更是对整个人生方向的重新校准",
-    frozenset(["高塔", "太阳"]):    "高塔+太阳：剧痛后的狂喜——崩塌揭露了被遮蔽的光明，因祸得福",
-    frozenset(["倒吊人", "世界"]):  "倒吊人+世界：耐心等待终迎圆满——臣服的智慧最终带来了完整",
-    frozenset(["恶魔", "力量"]):    "恶魔+力量：阴影的驯化——正在直面内在欲望与恐惧，而非被控制",
-    frozenset(["月亮", "太阳"]):    "月亮+太阳：幻觉与真实的拉锯——潜意识迷雾被意识光芒穿透，过程令人不安",
-    frozenset(["女祭司", "魔术师"]): "女祭司+魔术师：直觉与行动的博弈——需同时倾听内在与果断行动，关键在时机",
-    frozenset(["隐士", "恋人"]):    "隐士+恋人：独处与连接的矛盾——需先完成自我探索，才能真正投入关系",
-    frozenset(["战车", "节制"]):    "战车+节制：冲锋与节制的张力——全速前进的冲动需要被耐心与平衡调和",
-    frozenset(["皇帝", "命运之轮"]): "皇帝+命运之轮：秩序遇上变数——建立的结构正被更大力量测试，适应力比控制力重要",
-    frozenset(["教皇", "愚者"]):    "教皇+愚者：传统与叛逆的碰撞——在理解规则之后有意识地超越",
-    frozenset(["正义", "命运之轮"]): "正义+命运之轮：因果与时机——过去的选择正在产生后果，时机决定以什么形式呈现",
-    frozenset(["女皇", "皇帝"]):    "女皇+皇帝：阴阳合一——创造力与结构、滋养与纪律的完美平衡",
-    frozenset(["高塔", "恶魔"]):    "高塔+恶魔（预警）：双重警示——不健康的模式束缚你，突然的崩塌是打破枷锁的唯一方式",
-    frozenset(["月亮", "宝剑三"]):  "月亮+宝剑三（预警）：恐惧放大了痛苦——悲伤可能被潜意识幻觉所夸大",
-    frozenset(["恶魔", "宝剑九"]):  "恶魔+宝剑九（预警）：焦虑的根源是执念——噩梦与恐惧来自不愿放下的依附",
-    frozenset(["高塔", "宝剑十"]):  "高塔+宝剑十（预警）：彻底的终结——旧体系全面崩溃，从零开始，轻装上阵",
+    frozenset([13, 17]):  "死神+星星：黑暗后的曙光——旧我已死，新的希望正在升起",
+    frozenset([16, 17]):  "高塔+星星：崩塌后的疗愈——突如其来的破坏为真正的重建扫清道路",
+    frozenset([13, 20]):  "死神+审判：双重蜕变——不仅是结束与重生，更是对整个人生方向的重新校准",
+    frozenset([16, 19]):  "高塔+太阳：剧痛后的狂喜——崩塌揭露了被遮蔽的光明，因祸得福",
+    frozenset([12, 21]):  "倒吊人+世界：耐心等待终迎圆满——臣服的智慧最终带来了完整",
+    frozenset([15,  8]):  "恶魔+力量：阴影的驯化——正在直面内在欲望与恐惧，而非被控制",
+    frozenset([18, 19]):  "月亮+太阳：幻觉与真实的拉锯——潜意识迷雾被意识光芒穿透，过程令人不安",
+    frozenset([ 2,  1]):  "女祭司+魔术师：直觉与行动的博弈——需同时倾听内在与果断行动，关键在时机",
+    frozenset([ 9,  6]):  "隐士+恋人：独处与连接的矛盾——需先完成自我探索，才能真正投入关系",
+    frozenset([ 7, 14]):  "战车+节制：冲锋与节制的张力——全速前进的冲动需要被耐心与平衡调和",
+    frozenset([ 4, 10]):  "皇帝+命运之轮：秩序遇上变数——建立的结构正被更大力量测试，适应力比控制力重要",
+    frozenset([ 5,  0]):  "教皇+愚者：传统与叛逆的碰撞——在理解规则之后有意识地超越",
+    frozenset([11, 10]):  "正义+命运之轮：因果与时机——过去的选择正在产生后果，时机决定以什么形式呈现",
+    frozenset([ 3,  4]):  "女皇+皇帝：阴阳合一——创造力与结构、滋养与纪律的完美平衡",
+    frozenset([16, 15]):  "高塔+恶魔（预警）：双重警示——不健康的模式束缚你，突然的崩塌是打破枷锁的唯一方式",
+    frozenset([18, 52]):  "月亮+宝剑三（预警）：恐惧放大了痛苦——悲伤可能被潜意识幻觉所夸大",
+    frozenset([15, 58]):  "恶魔+宝剑九（预警）：焦虑的根源是执念——噩梦与恐惧来自不愿放下的依附",
+    frozenset([16, 59]):  "高塔+宝剑十（预警）：彻底的终结——旧体系全面崩溃，从零开始，轻装上阵",
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -113,8 +121,22 @@ CLASSIC_COMBOS = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _get_card_element(card_id, element_from_csv):
+    """元素优先级：CSV 字段 > MAJOR_ELEMENT 硬编码 > Unknown
+    CSV 优先保证换牌义库时无需改代码；硬编码作为大牌兜底。
+
+    修复说明：
+    - Fix 2：加 pd.isna() 检查，避免 CSV 空格被 pandas 读成 NaN 后被当做有效值
+    - Fix 3：CSV 里大牌元素可能写成 "风/天王星" 等复合字符串，
+             取 "/" 前第一段并去掉多余空白，确保能命中 ELEMENT_AFFINITY 的单字 key
+    """
+    # Fix 2: NaN 检查
+    if element_from_csv and not pd.isna(element_from_csv) and element_from_csv not in ("", "Unknown"):
+        # Fix 3: 取 "/" 前的第一个元素词，去掉天文符/行星后缀
+        normalized = element_from_csv.split("/")[0].strip()
+        if normalized:
+            return normalized
     if card_id in MAJOR_ARCANA_IDS:
-        return MAJOR_ELEMENT.get(card_id, element_from_csv)
+        return MAJOR_ELEMENT.get(card_id, "Unknown")
     return element_from_csv
 
 def _get_suit(card_id):
@@ -242,7 +264,7 @@ class TarotRAG:
         - 元素牌性（相邻牌对）
         - 愚人之旅（大牌间旅程关系）
         - 经典二牌组合（Layer 3）
-        - 叙事冲突检测（新增：相邻牌的能量剧烈反转）
+        - 相邻大牌对事实描述（adjacent_major_pairs，供 Agent B 判断叙事张力）
         """
         analysis = {}
         card_ids = [c["card_id"] for c in cards]
@@ -338,37 +360,34 @@ class TarotRAG:
                 analysis["fools_journey"] = journey_notes
 
         # ── 经典二牌组合（Layer 3）───────────────────────────────────────────
-        card_names   = [self._get_name_from_csv(c["card_id"]) for c in cards]
-        short_names  = [n.split(" ")[0] if n else "" for n in card_names]
+        # 用 card_id 匹配，与牌名字符串格式完全解耦，换牌义库不会静默失效
         matched = []
-        for a, b in combinations(short_names, 2):
-            key = frozenset([a, b])
+        for pair in combinations(card_ids, 2):
+            key = frozenset(pair)
             if key in CLASSIC_COMBOS:
                 matched.append(CLASSIC_COMBOS[key])
         if matched:
             analysis["classic_combinations"] = matched
 
-        # ── 叙事冲突检测（新增）──────────────────────────────────────────────
-        # 检测相邻牌的能量剧烈反转（大牌正→负 / 负→正），为 Agent N 提供叙事张力线索
-        POSITIVE_MAJORS = {0, 1, 3, 6, 8, 10, 14, 17, 19, 20, 21}   # 通常正面能量的大牌
-        NEGATIVE_MAJORS = {13, 15, 16, 18, 12}                        # 通常挑战性能量的大牌
+        # ── 相邻大牌对（供 Agent B 判断叙事张力）────────────────────────────
+        # 只报告事实：哪两张相邻大牌、各处于愚人之旅哪个阶段
+        # 正面/负面的价值判断留给 AI 根据上下文决定，不在 RAG 层硬贴标签
         if n >= 2:
-            conflicts = []
+            adjacent_major_pairs = []
             for i in range(n - 1):
-                id1 = cards[i]["card_id"]
-                id2 = cards[i + 1]["card_id"]
-                pos1 = cards[i].get("position_name", f"位置{i+1}")
-                pos2 = cards[i + 1].get("position_name", f"位置{i+2}")
-                n1_pos = id1 in POSITIVE_MAJORS
-                n1_neg = id1 in NEGATIVE_MAJORS
-                n2_pos = id2 in POSITIVE_MAJORS
-                n2_neg = id2 in NEGATIVE_MAJORS
-                if n1_pos and n2_neg:
-                    conflicts.append(f"【{pos1}→{pos2}】正面→挑战性突转：曾经的光明反衬当前的张力，可能是建立在不稳固基础上的成功")
-                elif n1_neg and n2_pos:
-                    conflicts.append(f"【{pos1}→{pos2}】挑战→正面突转：黎明前的黑暗，当前的困境正在为真正的疗愈铺路")
-            if conflicts:
-                analysis["narrative_conflicts"] = conflicts
+                id1, id2 = cards[i]["card_id"], cards[i + 1]["card_id"]
+                if id1 in MAJOR_ARCANA_IDS and id2 in MAJOR_ARCANA_IDS:
+                    pos1 = cards[i].get("position_name", f"位置{i+1}")
+                    pos2 = cards[i + 1].get("position_name", f"位置{i+2}")
+                    name1 = self._get_name_from_csv(id1)
+                    name2 = self._get_name_from_csv(id2)
+                    stage1 = _get_major_stage(id1) or "未知阶段"
+                    stage2 = _get_major_stage(id2) or "未知阶段"
+                    adjacent_major_pairs.append(
+                        f"【{pos1}】{name1}（{stage1}）→【{pos2}】{name2}（{stage2}）"
+                    )
+            if adjacent_major_pairs:
+                analysis["adjacent_major_pairs"] = adjacent_major_pairs
 
         return analysis
 
