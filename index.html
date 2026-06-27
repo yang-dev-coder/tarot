@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>手势塔罗 · MVP</title>
+
+  <link
+    href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600&family=Cinzel:wght@400;600&display=swap"
+    rel="stylesheet"
+  />
+
+  <!-- MediaPipe Hands（手势识别） -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js" crossorigin="anonymous"></script>
+
+  <style>
+    /* ══════════════════════════════════════════════
+       主题变量
+    ══════════════════════════════════════════════ */
+    :root {
+      --bg:           #0a0a14;
+      --bg-mid:       #0e0e1e;
+      --gold:         #c9a96e;
+      --gold-dim:     rgba(201, 169, 110, 0.30);
+      --gold-glow:    rgba(201, 169, 110, 0.15);
+      --text:         #e8dcc8;
+      --text-muted:   rgba(232, 220, 200, 0.50);
+      --surface:      rgba(255, 255, 255, 0.04);
+      --border:       rgba(201, 169, 110, 0.25);
+      --card-w:       70px;
+      --card-h:       120px;
+      --radius-ui:    8px;
+      --radius-card:  6px;
+      --font-main:    'Noto Serif SC', serif;
+      --font-display: 'Cinzel', 'Noto Serif SC', serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100dvh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-main);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow-x: hidden;
+    }
+
+    /* ── 摄像头背景 ─── */
+    #camera-feed {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0;
+      z-index: 0;
+      pointer-events: none;
+      transition: opacity 1.2s ease;
+      transform: scaleX(-1);
+    }
+    #camera-feed.ready { opacity: 0.18; }
+
+    /* ── 场景容器 ─── */
+    .scene {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      max-width: 540px;
+      padding: 32px 24px env(safe-area-inset-bottom, 24px);
+      gap: 24px;
+      position: relative;
+      z-index: 1;
+    }
+    .scene.active { display: flex; }
+
+    #scene-spreading,
+    #scene-selecting {
+      max-width: 900px;
+      max-height: 100dvh;
+      overflow-y: auto;
+      justify-content: flex-start;
+      padding-top: 24px;
+    }
+
+    #scene-reading,
+    #scene-done {
+      max-width: 660px;
+      justify-content: flex-start;
+      padding-top: 40px;
+    }
+
+    /* ── 通用元素 ─── */
+    h1 {
+      font-family: var(--font-display);
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--gold);
+      letter-spacing: 0.1em;
+      text-align: center;
+    }
+    h2 {
+      font-family: var(--font-display);
+      font-size: 1.15rem;
+      font-weight: 400;
+      color: var(--gold);
+      letter-spacing: 0.08em;
+      text-align: center;
+    }
+    p.subtitle {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      text-align: center;
+      line-height: 1.8;
+    }
+    .divider {
+      width: 100%;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* ── 呼吸光点 ─── */
+    #breath-light {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #c9a96e 0%, rgba(201,169,110,0.3) 55%, transparent 100%);
+      box-shadow: 0 0 24px 8px rgba(201,169,110,0.25);
+      animation: breathe 3s ease-in-out infinite;
+      transition: box-shadow 0.3s ease, transform 0.3s ease;
+      flex-shrink: 0;
+    }
+    #breath-light.focused {
+      animation: breathe-bright 2s ease-in-out infinite;
+      box-shadow: 0 0 36px 14px rgba(201,169,110,0.4);
+    }
+    #breath-light.burst {
+      animation: burst-out 0.7s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    }
+    @keyframes breathe {
+      0%, 100% { transform: scale(1);    opacity: 0.7; }
+      50%       { transform: scale(1.22); opacity: 1;   }
+    }
+    @keyframes breathe-bright {
+      0%, 100% { transform: scale(1.05); opacity: 0.85; }
+      50%       { transform: scale(1.35); opacity: 1;    }
+    }
+    @keyframes burst-out {
+      0%   { transform: scale(1);   opacity: 1;   }
+      60%  { transform: scale(4.5); opacity: 0.5; }
+      100% { transform: scale(8);   opacity: 0;   }
+    }
+
+    /* ── 输入区 ─── */
+    #input-area {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    #question-input {
+      width: 100%;
+      padding: 14px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-ui);
+      color: var(--text);
+      font-family: var(--font-main);
+      font-size: 1rem;
+      outline: none;
+      resize: none;
+      min-height: 80px;
+      transition: border-color 0.25s;
+    }
+    #question-input::placeholder { color: var(--text-muted); }
+    #question-input:focus        { border-color: var(--gold); }
+
+    /* ── 按钮 ─── */
+    .btn {
+      padding: 12px 28px;
+      border: 1px solid var(--gold);
+      border-radius: var(--radius-ui);
+      background: transparent;
+      color: var(--gold);
+      font-family: var(--font-display);
+      font-size: 0.9rem;
+      cursor: pointer;
+      letter-spacing: 0.1em;
+      transition: background 0.2s, color 0.2s;
+      align-self: flex-end;
+    }
+    .btn:hover    { background: var(--gold); color: var(--bg); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-ghost {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--text-muted);
+    }
+    .btn-ghost:hover {
+      border-color: var(--gold);
+      color: var(--gold);
+      background: transparent;
+    }
+
+    /* ── 错误提示 ─── */
+    .error-msg {
+      font-size: 0.85rem;
+      color: #e57373;
+      text-align: center;
+    }
+
+    /* ── 准备中 ─── */
+    .loading-text {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      color: var(--text-muted);
+      letter-spacing: 0.15em;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.35; }
+      50%       { opacity: 1; }
+    }
+    .prep-stars {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: center;
+      margin-top: 8px;
+    }
+    .prep-star {
+      width: 4px; height: 4px;
+      border-radius: 50%;
+      background: var(--gold);
+      animation: star-blink 1.4s ease-in-out infinite;
+    }
+    .prep-star:nth-child(2) { animation-delay: 0.3s; }
+    .prep-star:nth-child(3) { animation-delay: 0.6s; }
+    @keyframes star-blink {
+      0%, 100% { opacity: 0.2; transform: scale(1);   }
+      50%       { opacity: 1;   transform: scale(1.5); }
+    }
+
+    /* ── 牌阵信息栏 ─── */
+    .spread-info {
+      width: 100%;
+      padding: 14px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-ui);
+    }
+    .spread-info .spread-name {
+      font-family: var(--font-display);
+      font-size: 0.95rem;
+      color: var(--gold);
+      font-weight: 600;
+      margin-bottom: 6px;
+      letter-spacing: 0.06em;
+    }
+    .spread-info .spread-positions { font-size: 0.82rem; color: var(--text-muted); }
+    .spread-info .user-question    { font-size: 0.82rem; color: var(--text-muted); margin-top: 6px; font-style: italic; }
+
+    /* ── 牌区 ─── */
+    #card-tray { position: relative; width: 100%; }
+
+    /* ── 单张牌 ─── */
+    .tarot-card {
+      position: absolute;
+      width: var(--card-w);
+      height: var(--card-h);
+      border-radius: var(--radius-card);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      padding-bottom: 8px;
+      overflow: hidden;
+      user-select: none;
+      transition: border-color 0.2s, filter 0.15s ease;
+    }
+    .tarot-card:hover:not(.selected) { border-color: var(--gold); filter: brightness(1.18); }
+
+    .tarot-card .card-image {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .tarot-card .card-image img {
+      width: 100%; height: 100%; object-fit: cover; border-radius: var(--radius-card);
+    }
+    .tarot-card .card-image img.reversed { transform: rotate(180deg); }
+
+    .tarot-card .card-back-layer {
+      position: absolute; inset: 0;
+      border-radius: var(--radius-card);
+      background: var(--bg);
+      display: flex; align-items: center; justify-content: center;
+      transition: opacity 0.3s;
+    }
+    .tarot-card .card-back-layer svg { width: 60%; opacity: 0.5; }
+
+    .tarot-card .card-label {
+      position: relative; z-index: 2;
+      font-size: 0.65rem; color: var(--text); text-align: center;
+      background: rgba(10,10,20,0.72); padding: 1px 5px; border-radius: 3px;
+    }
+
+    .tarot-card.selected { border-color: var(--gold); background: rgba(201,169,110,0.08); }
+    .tarot-card.selected .card-back-layer { opacity: 0; }
+    .tarot-card.selected .card-label      { color: var(--gold); }
+
+    .tarot-card .selected-badge {
+      position: absolute; top: 5px; right: 5px;
+      width: 17px; height: 17px; border-radius: 50%;
+      background: var(--gold);
+      display: none; align-items: center; justify-content: center;
+      font-size: 0.6rem; color: var(--bg); font-weight: 700; z-index: 4;
+    }
+    .tarot-card.selected .selected-badge { display: flex; }
+
+    /* ── 选牌进度 ─── */
+    .select-progress { font-size: 0.85rem; color: var(--text-muted); text-align: center; }
+    .select-progress span { color: var(--gold); }
+
+    /* ── 手势提示 ─── */
+    #gesture-hint {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      text-align: center;
+      letter-spacing: 0.06em;
+      transition: opacity 0.6s ease;
+      animation: pulse 3s ease-in-out infinite;
+    }
+
+    /* ── 收集区 ─── */
+    #card-collect-area {
+      width: 100%;
+      min-height: 80px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-ui);
+      background: var(--surface);
+    }
+    #card-collect-area:empty::before {
+      content: '已选牌将在此汇聚...';
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+    .collect-chip {
+      font-size: 0.75rem; color: var(--gold);
+      padding: 3px 10px;
+      border: 1px solid var(--gold-dim); border-radius: 20px;
+      background: var(--gold-glow);
+    }
+    /* 收集槽由 gesture.js 动态创建 */
+    .collect-slot { display: inline-block; }
+
+    /* ── spreading 场景 ─── */
+    #spreading-card-area { width: 100%; position: relative; }
+    #spreading-hint {
+      font-size: 0.82rem; color: var(--text-muted); text-align: center;
+      letter-spacing: 0.08em; animation: pulse 2s ease-in-out infinite;
+    }
+
+    /* ── revealing 场景 ─── */
+    #scene-revealing { min-height: 40dvh; justify-content: center; }
+    #revealing-hint {
+      font-family: var(--font-display); font-size: 1rem;
+      color: var(--text-muted); letter-spacing: 0.12em;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    /* ── reading 场景 ─── */
+    #reading-header { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
+    #reading-area {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-ui);
+      padding: 20px 22px;
+      line-height: 1.85;
+      font-size: 0.92rem;
+      color: var(--text);
+      white-space: pre-wrap;
+      min-height: 120px;
+    }
+
+    #result-list { width: 100%; display: flex; flex-direction: column; gap: 10px; }
+    .result-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 14px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-ui);
+    }
+    .result-item .result-pos { font-size: 0.72rem; color: var(--gold); min-width: 32px; text-align: center; }
+    .result-item .result-name { font-size: 0.9rem; color: var(--text); flex: 1; }
+    .result-item .result-orientation { font-size: 0.72rem; color: var(--text-muted); border: 1px solid var(--border); padding: 2px 6px; border-radius: 3px; }
+    .result-item .result-orientation.reversed { color: #e57373; border-color: rgba(229,115,115,0.3); }
+
+    /* ── 响应式 ─── */
+    @media (max-width: 720px) {
+      :root { --card-w: 52px; --card-h: 88px; }
+      h1 { font-size: 1.2rem; }
+      .scene { padding: 24px 16px; }
+    }
+    @media (max-width: 480px) {
+      :root { --card-w: 46px; --card-h: 78px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <video id="camera-feed" autoplay playsinline muted></video>
+
+  <!-- ── Scene 1: 输入 ── -->
+  <section id="scene-entry" class="scene active">
+    <div id="breath-light"></div>
+    <h1>Tarot</h1>
+    <p class="subtitle">写下你心中所求之事<br/>星辰将为你指引方向</p>
+    <div class="divider"></div>
+    <div id="input-area">
+      <textarea id="question-input" placeholder="你想问什么？" maxlength="200"></textarea>
+      <p id="entry-error" class="error-msg" style="display:none;"></p>
+      <button class="btn" onclick="handleStart()">开始占卜</button>
+    </div>
+  </section>
+
+  <!-- ── Scene 2: 准备中 ── -->
+  <section id="scene-preparing" class="scene">
+    <p class="loading-text">凝视你的牌...</p>
+    <div class="prep-stars">
+      <div class="prep-star"></div>
+      <div class="prep-star"></div>
+      <div class="prep-star"></div>
+    </div>
+  </section>
+
+  <!-- ── Scene 3: spreading ── -->
+  <section id="scene-spreading" class="scene">
+    <p id="spreading-hint">牌阵正在展开...</p>
+    <div id="spreading-card-area"></div>
+  </section>
+
+  <!-- ── Scene 4: 选牌 ── -->
+  <section id="scene-selecting" class="scene">
+    <h2>选择你的牌</h2>
+
+    <div class="spread-info">
+      <div class="spread-name"      id="spread-name-label"></div>
+      <div class="spread-positions" id="spread-positions-label"></div>
+      <div class="user-question"    id="spread-question-label"></div>
+    </div>
+
+    <p class="select-progress">
+      已选 <span id="selected-count">0</span> /
+      <span id="total-count">3</span> 张
+    </p>
+
+    <!-- card-tray 由 app.js 动态移入 -->
+
+    <p id="gesture-hint"></p>
+    <p id="selecting-error" class="error-msg" style="display:none;"></p>
+
+    <button class="btn btn-ghost" style="align-self:center;" onclick="handleReset()">
+      重新选择
+    </button>
+  </section>
+
+  <!-- ── Scene 5: revealing ── -->
+  <section id="scene-revealing" class="scene">
+    <p id="revealing-hint">命运正在揭示...</p>
+    <div id="card-collect-area"></div>
+  </section>
+
+  <!-- ── Scene 6: reading ── -->
+  <section id="scene-reading" class="scene">
+    <div id="reading-header">
+      <h2>解读</h2>
+      <p class="subtitle" id="result-question-label"></p>
+    </div>
+    <div class="divider"></div>
+    <div id="result-list"></div>
+    <div id="reading-area">星辰正在为你推演...</div>
+    <div class="divider"></div>
+    <button class="btn" style="align-self:center;" onclick="handleRestart()">
+      再来一次
+    </button>
+  </section>
+
+  <!-- ── Scene 7: done ── -->
+  <section id="scene-done" class="scene">
+    <h1>✦</h1>
+    <p class="subtitle">解读已完成<br/>愿星辰指引你的道路</p>
+    <button class="btn" style="align-self:center;" onclick="handleRestart()">
+      再来一次
+    </button>
+  </section>
+
+  <!--
+    脚本加载顺序：
+      1. state.js    — STATE / DECK
+      2. api.js      — callPrepareAPI
+      3. ui.js       — DOM 操作
+      4. gesture.js  — 手势 / 粒子 / 蓄力（Part 2 新增）
+      5. app.js      — 主流程
+  -->
+  <script src="./state.js"></script>
+  <script src="./api.js"></script>
+  <script src="./ui.js"></script>
+  <script src="./gesture.js"></script>
+  <script src="./app.js"></script>
+
+  <script>
+    const _camCheck = setInterval(() => {
+      if (typeof STATE !== 'undefined' && STATE.cameraReady) {
+        document.getElementById('camera-feed').classList.add('ready');
+        clearInterval(_camCheck);
+      }
+    }, 500);
+  </script>
+
+</body>
+</html>
