@@ -1,10 +1,9 @@
 /**
- * ui.js — 所有 DOM 操作
+ * ui.js — Phase 10 改造
  *
- * 本轮变更（Part 1 改造）：
- *   - SCENE_ELS 扩展：新增 spreading / revealing / reading / done
- *   - FAN_CONFIG 与 CSS 变量统一：CARD_W=70, CARD_H=120
- *   - 其余逻辑保持与 Phase 5 一致
+ * 改动：
+ *   - setPhase：display:none↔flex 改为 opacity 过渡（active + visible 双 class）
+ *   - 其余逻辑与原版一致
  */
 
 // ── 扇形布局常量（与 CSS --card-w/h 保持一致）────────────────────────────
@@ -12,8 +11,8 @@ const FAN_CONFIG = {
   RADIUS:           320,
   ANGLE_MIN:        -80,
   ANGLE_MAX:         80,
-  CARD_W:            70,   // 与 CSS --card-w: 70px 一致
-  CARD_H:           120,   // 与 CSS --card-h: 120px 一致
+  CARD_W:            70,
+  CARD_H:           120,
   TRAY_PADDING_TOP:  24,
 };
 
@@ -23,7 +22,7 @@ const SELECT_GLOW  = '0 0 18px 5px rgba(201,169,110,0.80)';
 const HOVER_SCALE  = 'scale(1.08)';
 const SELECT_SCALE = 'scale(1.10)';
 
-// ── 场景节点缓存（扩展至 7 个）──────────────────────────────────────────
+// ── 场景节点缓存 ─────────────────────────────────────────────────────────
 const SCENE_ELS = {
   entry:     document.getElementById('scene-entry'),
   preparing: document.getElementById('scene-preparing'),
@@ -34,12 +33,61 @@ const SCENE_ELS = {
   done:      document.getElementById('scene-done'),
 };
 
-// ── 场景切换 ───────────────────────────────────────────────────────────────
+// ── Phase 10：场景切换（opacity 淡入淡出）────────────────────────────────
+
+/**
+ * setPhase — 先让旧场景淡出，再让新场景淡入。
+ * 利用 active（display:flex）+ visible（opacity:1）双 class 实现过渡。
+ */
 function setPhase(phase) {
   Object.entries(SCENE_ELS).forEach(([key, el]) => {
-    if (el) el.classList.toggle('active', key === phase);
+    if (!el) return;
+
+    if (key === phase) {
+      // 先加 active（display:flex），下一帧加 visible（opacity:1）
+      el.classList.add('active');
+      // 强制 reflow，让浏览器识别到 opacity 从 0 开始
+      void el.offsetHeight;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          el.classList.add('visible');
+        });
+      });
+    } else {
+      // 淡出：先移除 visible，等过渡完再移除 active
+      if (el.classList.contains('visible')) {
+        el.classList.remove('visible');
+        // 等 CSS transition 完成（0.3s）再 display:none
+        const onEnd = () => {
+          el.classList.remove('active');
+          el.removeEventListener('transitionend', onEnd);
+        };
+        el.addEventListener('transitionend', onEnd);
+        // 保底兜底：350ms 后强制移除（防止 transitionend 不触发）
+        setTimeout(() => {
+          el.classList.remove('active');
+          el.removeEventListener('transitionend', onEnd);
+        }, 350);
+      } else {
+        el.classList.remove('active');
+      }
+    }
   });
 }
+
+// 初始化：entry 场景直接可见（页面加载后无过渡直接显示）
+(function initFirstScene() {
+  const entryEl = SCENE_ELS.entry;
+  if (entryEl) {
+    entryEl.classList.add('active');
+    // 延迟一帧加 visible，让首屏有轻微淡入
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        entryEl.classList.add('visible');
+      });
+    });
+  }
+})();
 
 // ── 选牌场景 ───────────────────────────────────────────────────────────────
 function renderSelectingScene(spread, question, onCardClick) {
@@ -100,15 +148,6 @@ function buildCardElement(card, idx, onCardClick) {
 
 // ── 扇形布局 ───────────────────────────────────────────────────────────────
 
-/**
- * layoutCards — 扇形极坐标布局 + hover / select 交互
- *
- * 牌从中心初始化（opacity:0, scale:0）→ 由调用方触发展开动画。
- * 此函数只负责计算最终坐标并写入 dataset，动画由 animateSpread() 驱动。
- *
- * @param {HTMLElement[]} cardEls
- * @param {boolean} [skipAnim=false] 跳过展开动画直接就位（selecting 阶段复用）
- */
 function layoutCards(cardEls, skipAnim = false) {
   if (!cardEls || cardEls.length === 0) return;
 
@@ -154,16 +193,13 @@ function layoutCards(cardEls, skipAnim = false) {
     el.style.transition      = 'box-shadow 0.15s ease, filter 0.15s ease, opacity 0.4s ease';
 
     if (skipAnim) {
-      // 直接就位，无动画
       el.style.transform = baseTransform;
       el.style.opacity   = '1';
     } else {
-      // 初始态：叠在中心，等待展开动画
       el.style.transform = 'translateX(0) translateY(0) rotate(0deg)';
       el.style.opacity   = '0';
     }
 
-    // ── hover 交互 ──────────────────────────────────────────────────────────
     el.addEventListener('mouseenter', () => {
       if (el.classList.contains('selected')) return;
       el.style.transform = baseTransform + ' ' + HOVER_SCALE;
@@ -185,23 +221,17 @@ function layoutCards(cardEls, skipAnim = false) {
   });
 }
 
-/**
- * animateSpread — 牌从中心扇形展开动画
- * 在 spreading 场景完成布局后调用。
- * @param {HTMLElement[]} cardEls
- * @param {Function} [onDone] 动画完成后的回调
- */
 function animateSpread(cardEls, onDone) {
   if (!cardEls || cardEls.length === 0) {
     if (onDone) onDone();
     return;
   }
 
-  const STAGGER = 38;   // 每张牌的错开延迟（ms）
+  const STAGGER = 38;
 
   cardEls.forEach((el, i) => {
-    const delay     = i * STAGGER;
-    const baseT     = el.dataset.baseTransform || '';
+    const delay = i * STAGGER;
+    const baseT = el.dataset.baseTransform || '';
 
     setTimeout(() => {
       el.style.transition = `transform 0.55s cubic-bezier(0.22, 0.8, 0.4, 1) ${delay}ms,
@@ -213,7 +243,6 @@ function animateSpread(cardEls, onDone) {
     }, 0);
   });
 
-  // 全部完成后回调
   const totalDuration = STAGGER * (cardEls.length - 1) + 600;
   if (onDone) setTimeout(onDone, totalDuration);
 }
@@ -250,7 +279,7 @@ function clearAllCardSelections() {
   });
 }
 
-// ── 收集区：选中牌飞入顶部横条（Phase 6+ 实现细节，此处为骨架）───────────
+// ── 收集区 ────────────────────────────────────────────────────────────────
 function updateCollectArea(selectedCards) {
   const area = document.getElementById('card-collect-area');
   if (!area) return;
@@ -263,7 +292,7 @@ function updateCollectArea(selectedCards) {
   });
 }
 
-// ── 结果 / 解读场景（Phase 6+ 会重写，此处保留兼容占位）─────────────────
+// ── 结果 / 解读场景 ────────────────────────────────────────────────────────
 function renderResultScene(question, selectedCards) {
   const label = document.getElementById('result-question-label');
   if (label) label.textContent = '「' + question + '」';
