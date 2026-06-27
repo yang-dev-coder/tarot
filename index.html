@@ -50,7 +50,20 @@
       overflow-x: hidden;
     }
 
-    /* ── 摄像头背景 ─── */
+    /* ── Phase 10：全屏微震 ── */
+    @keyframes screen-shake {
+      0%   { transform: translate(0,0); }
+      20%  { transform: translate(-3px, 1px); }
+      40%  { transform: translate(3px, -1px); }
+      60%  { transform: translate(-2px, 2px); }
+      80%  { transform: translate(2px, -2px); }
+      100% { transform: translate(0,0); }
+    }
+    body.screen-shake {
+      animation: screen-shake 0.28s cubic-bezier(0.36,0.07,0.19,0.97) both;
+    }
+
+    /* ── 摄像头背景 ── */
     #camera-feed {
       position: fixed;
       inset: 0;
@@ -65,7 +78,7 @@
     }
     #camera-feed.ready { opacity: 0.18; }
 
-    /* ── 场景容器 ─── */
+    /* ── Phase 10：场景淡入淡出 ── */
     .scene {
       display: none;
       flex-direction: column;
@@ -76,8 +89,19 @@
       gap: 24px;
       position: relative;
       z-index: 1;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      pointer-events: none;
     }
-    .scene.active { display: flex; }
+    /* active 先把 display 变成 flex */
+    .scene.active {
+      display: flex;
+    }
+    /* visible 再驱动 opacity（两帧后加，让浏览器能过渡） */
+    .scene.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
 
     #scene-spreading,
     #scene-selecting {
@@ -95,7 +119,13 @@
       padding-top: 40px;
     }
 
-    /* ── 通用元素 ─── */
+    #scene-revealing {
+      max-width: 760px;
+      justify-content: center;
+      min-height: 50dvh;
+    }
+
+    /* ── 通用元素 ── */
     h1 {
       font-family: var(--font-display);
       font-size: 1.5rem;
@@ -124,7 +154,7 @@
       background: var(--border);
     }
 
-    /* ── 呼吸光点 ─── */
+    /* ── 呼吸光点 ── */
     #breath-light {
       width: 48px;
       height: 48px;
@@ -156,7 +186,7 @@
       100% { transform: scale(8);   opacity: 0;   }
     }
 
-    /* ── 输入区 ─── */
+    /* ── 输入区 ── */
     #input-area {
       width: 100%;
       display: flex;
@@ -180,7 +210,7 @@
     #question-input::placeholder { color: var(--text-muted); }
     #question-input:focus        { border-color: var(--gold); }
 
-    /* ── 按钮 ─── */
+    /* ── 按钮 ── */
     .btn {
       padding: 12px 28px;
       border: 1px solid var(--gold);
@@ -208,14 +238,14 @@
       background: transparent;
     }
 
-    /* ── 错误提示 ─── */
+    /* ── 错误提示 ── */
     .error-msg {
       font-size: 0.85rem;
       color: #e57373;
       text-align: center;
     }
 
-    /* ── 准备中 ─── */
+    /* ── 准备中 ── */
     .loading-text {
       font-family: var(--font-display);
       font-size: 1rem;
@@ -247,7 +277,7 @@
       50%       { opacity: 1;   transform: scale(1.5); }
     }
 
-    /* ── 牌阵信息栏 ─── */
+    /* ── 牌阵信息栏 ── */
     .spread-info {
       width: 100%;
       padding: 14px 16px;
@@ -266,10 +296,10 @@
     .spread-info .spread-positions { font-size: 0.82rem; color: var(--text-muted); }
     .spread-info .user-question    { font-size: 0.82rem; color: var(--text-muted); margin-top: 6px; font-style: italic; }
 
-    /* ── 牌区 ─── */
+    /* ── 牌区 ── */
     #card-tray { position: relative; width: 100%; }
 
-    /* ── 单张牌 ─── */
+    /* ── 单张牌 ── */
     .tarot-card {
       position: absolute;
       width: var(--card-w);
@@ -326,11 +356,11 @@
     }
     .tarot-card.selected .selected-badge { display: flex; }
 
-    /* ── 选牌进度 ─── */
+    /* ── 选牌进度 ── */
     .select-progress { font-size: 0.85rem; color: var(--text-muted); text-align: center; }
     .select-progress span { color: var(--gold); }
 
-    /* ── 手势提示 ─── */
+    /* ── 手势提示 ── */
     #gesture-hint {
       font-size: 0.78rem;
       color: var(--text-muted);
@@ -340,80 +370,148 @@
       animation: pulse 3s ease-in-out infinite;
     }
 
-    /* ── 收集区 ─── */
+    /* ── 收集区 ── */
     #card-collect-area {
-      width: 100%;
-      min-height: 80px;
       display: flex;
-      gap: 10px;
-      align-items: center;
+      gap: 24px;
+      align-items: flex-end;
       flex-wrap: wrap;
-      padding: 10px 14px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-ui);
-      background: var(--surface);
+      justify-content: center;
+      padding: 32px 16px 48px;
+      min-height: 80px;
     }
-    #card-collect-area:empty::before {
-      content: '已选牌将在此汇聚...';
-      font-size: 0.78rem;
-      color: var(--text-muted);
-      font-style: italic;
+    /* collect-slot 由 gesture.js 创建，revealing 场景里给额外空间放标签 */
+    .collect-slot {
+      position: relative;
+      flex-shrink: 0;
+      margin-top: 28px;   /* 为上方位置标签留空 */
+      margin-bottom: 32px; /* 为下方牌名标签留空 */
     }
+
     .collect-chip {
       font-size: 0.75rem; color: var(--gold);
       padding: 3px 10px;
       border: 1px solid var(--gold-dim); border-radius: 20px;
       background: var(--gold-glow);
     }
-    /* 收集槽由 gesture.js 动态创建 */
-    .collect-slot { display: inline-block; }
 
-    /* ── spreading 场景 ─── */
+    /* ── spreading 场景 ── */
     #spreading-card-area { width: 100%; position: relative; }
     #spreading-hint {
       font-size: 0.82rem; color: var(--text-muted); text-align: center;
       letter-spacing: 0.08em; animation: pulse 2s ease-in-out infinite;
     }
 
-    /* ── revealing 场景 ─── */
-    #scene-revealing { min-height: 40dvh; justify-content: center; }
+    /* ── revealing 场景 ── */
     #revealing-hint {
-      font-family: var(--font-display); font-size: 1rem;
+      font-family: var(--font-display); font-size: 0.9rem;
       color: var(--text-muted); letter-spacing: 0.12em;
+      animation: pulse 2s ease-in-out infinite;
+      text-align: center;
+    }
+
+    /* ── Phase 9：reading 场景 ── */
+    #reading-header { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
+
+    /* 翻好的牌面缩略图行 */
+    #revealed-cards-row {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      justify-content: center;
+      width: 100%;
+      padding: 4px 0 8px;
+    }
+
+    /* loading 态 */
+    #reading-loading {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      padding: 40px 0;
+    }
+    .star-spinner {
+      width: 48px; height: 48px;
+      border: 2px solid var(--gold-dim);
+      border-top-color: var(--gold);
+      border-radius: 50%;
+      animation: spin 1.2s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #reading-loading-text {
+      font-family: var(--font-display);
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      letter-spacing: 0.12em;
       animation: pulse 2s ease-in-out infinite;
     }
 
-    /* ── reading 场景 ─── */
-    #reading-header { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
-    #reading-area {
+    /* content 态 */
+    #reading-content {
       width: 100%;
+      display: none;
+      flex-direction: column;
+      gap: 2px;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius-ui);
       padding: 20px 22px;
-      line-height: 1.85;
+      line-height: 1.9;
       font-size: 0.92rem;
       color: var(--text);
-      white-space: pre-wrap;
-      min-height: 120px;
+      max-height: 60dvh;
+      overflow-y: auto;
+      scroll-behavior: smooth;
+    }
+    /* 滚动条美化 */
+    #reading-content::-webkit-scrollbar { width: 4px; }
+    #reading-content::-webkit-scrollbar-track { background: transparent; }
+    #reading-content::-webkit-scrollbar-thumb { background: var(--gold-dim); border-radius: 2px; }
+
+    /* 逐字行 */
+    .reading-line {
+      min-height: 1.5em;
+      transition: color 0.2s;
     }
 
+    /* Phase 9：分段标题金色左边框样式 */
+    .reading-title-line {
+      color: var(--gold);
+      border-left: 2px solid var(--gold);
+      padding-left: 10px;
+      margin: 10px 0 4px;
+      font-family: var(--font-display);
+      font-size: 0.88rem;
+      letter-spacing: 0.06em;
+    }
+
+    /* 牌列表（结果区，reading 场景保留） */
     #result-list { width: 100%; display: flex; flex-direction: column; gap: 10px; }
     .result-item {
       display: flex; align-items: center; gap: 12px;
       padding: 10px 14px;
       background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-ui);
     }
-    .result-item .result-pos { font-size: 0.72rem; color: var(--gold); min-width: 32px; text-align: center; }
-    .result-item .result-name { font-size: 0.9rem; color: var(--text); flex: 1; }
+    .result-item .result-pos         { font-size: 0.72rem; color: var(--gold); min-width: 32px; text-align: center; }
+    .result-item .result-name        { font-size: 0.9rem; color: var(--text); flex: 1; }
     .result-item .result-orientation { font-size: 0.72rem; color: var(--text-muted); border: 1px solid var(--border); padding: 2px 6px; border-radius: 3px; }
     .result-item .result-orientation.reversed { color: #e57373; border-color: rgba(229,115,115,0.3); }
 
-    /* ── 响应式 ─── */
+    /* ── 重启按钮（初始隐藏，解读完成后浮现） ── */
+    #restart-btn {
+      display: none;
+      align-self: center;
+    }
+
+    /* ── 响应式 ── */
     @media (max-width: 720px) {
       :root { --card-w: 52px; --card-h: 88px; }
       h1 { font-size: 1.2rem; }
       .scene { padding: 24px 16px; }
+      #reading-content { max-height: 55dvh; }
     }
     @media (max-width: 480px) {
       :root { --card-w: 46px; --card-h: 78px; }
@@ -482,23 +580,39 @@
     </button>
   </section>
 
-  <!-- ── Scene 5: revealing ── -->
+  <!-- ── Scene 5: revealing（翻牌动画） ── -->
   <section id="scene-revealing" class="scene">
     <p id="revealing-hint">命运正在揭示...</p>
+    <!-- collect-area 由 app.js 在 revealing 阶段移入 -->
     <div id="card-collect-area"></div>
   </section>
 
-  <!-- ── Scene 6: reading ── -->
+  <!-- ── Scene 6: reading（AI 解读） ── -->
   <section id="scene-reading" class="scene">
     <div id="reading-header">
       <h2>解读</h2>
       <p class="subtitle" id="result-question-label"></p>
     </div>
+
+    <!-- 翻好的牌面缩略图行 -->
+    <div id="revealed-cards-row"></div>
+
     <div class="divider"></div>
+
+    <!-- 解读列表（牌名/正逆位）-->
     <div id="result-list"></div>
-    <div id="reading-area">星辰正在为你推演...</div>
-    <div class="divider"></div>
-    <button class="btn" style="align-self:center;" onclick="handleRestart()">
+
+    <!-- loading 态 -->
+    <div id="reading-loading">
+      <div class="star-spinner"></div>
+      <p id="reading-loading-text">命运之轮转动中...</p>
+    </div>
+
+    <!-- content 态（逐字流式输出） -->
+    <div id="reading-content"></div>
+
+    <div class="divider" style="margin-top:8px;"></div>
+    <button id="restart-btn" class="btn" onclick="handleRestart()">
       再来一次
     </button>
   </section>
@@ -515,10 +629,10 @@
   <!--
     脚本加载顺序：
       1. state.js    — STATE / DECK
-      2. api.js      — callPrepareAPI
-      3. ui.js       — DOM 操作
-      4. gesture.js  — 手势 / 粒子 / 蓄力（Part 2 新增）
-      5. app.js      — 主流程
+      2. api.js      — callPrepareAPI / callReadingAPI
+      3. ui.js       — DOM 操作（含 setPhase 升级）
+      4. gesture.js  — 手势 / 粒子 / 蓄力
+      5. app.js      — 主流程（Phase 8/9/10）
   -->
   <script src="./state.js"></script>
   <script src="./api.js"></script>
@@ -527,6 +641,7 @@
   <script src="./app.js"></script>
 
   <script>
+    // 摄像头就绪后显示背景
     const _camCheck = setInterval(() => {
       if (typeof STATE !== 'undefined' && STATE.cameraReady) {
         document.getElementById('camera-feed').classList.add('ready');
