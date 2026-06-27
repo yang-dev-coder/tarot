@@ -30,3 +30,6 @@ Thumbs.db
 
 # Excel 审计报告（每次测试会重新生成）
 AI_System_Border_Security_Audit_Report.xlsx
+
+# WorkBuddy 工具内部目录
+.workbuddy/
