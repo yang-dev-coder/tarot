@@ -158,7 +158,7 @@ function updateGestureHint() {
   const el = document.getElementById('gesture-hint');
   if (!el) return;
   if (STATE.gestureEnabled) {
-    el.textContent = '☝️ 伸出食指悬停蓄力选中，或左右拖拽旋转后点击选牌';
+    el.textContent = '✋ 张开手掌左右移动旋转牌阵 · ☝️ 食指悬停蓄力选中';
   } else {
     el.textContent = '← 左右拖拽旋转牌阵 · 点击选牌 →';
   }
@@ -256,16 +256,80 @@ function isPointingGesture(landmarks) {
   );
 }
 
+/**
+ * 检测张开手掌（5 指都伸直）→ 拖拽旋转模式
+ * 与 isPointingGesture 互斥：指向只有食指伸直，张掌是四指全伸直
+ */
+function isOpenPalmGesture(landmarks) {
+  return (
+    landmarks[8].y  < landmarks[6].y  &&
+    landmarks[12].y < landmarks[10].y &&
+    landmarks[16].y < landmarks[14].y &&
+    landmarks[20].y < landmarks[18].y
+  );
+}
+
 let stableCount = 0, lastHitIdx = null;
+
+// ── 手掌拖拽旋转状态 ──────────────────────────────────────────────────────
+let _gestureDragActive = false;   // 当前是否处于手掌拖拽模式
+let _gestureLastX      = 0;       // 上一帧手掌 X（屏幕坐标，已镜像）
 
 function onHandResults(results) {
   if (STATE.phase !== 'selecting') return;
   if (!results.multiHandLandmarks || !results.multiHandLandmarks.length) {
+    // 手离开画面 → 清理两种模式
+    if (_gestureDragActive) {
+      _gestureDragActive = false;
+      _momentum();               // 手松开 → 惯性滑行
+    }
     STATE.hoveredCard = null;
+    STATE.hoveredCardIdx = null;
+    STATE.chargeProgress = 0;
     updateChargeUI();
     return;
   }
+
   const landmarks = results.multiHandLandmarks[0];
+
+  // ── 优先检测张开手掌 → 拖拽旋转 ──────────────────────────────────────
+  if (isOpenPalmGesture(landmarks)) {
+    // 切换到手掌模式 → 清除蓄力选牌状态
+    STATE.chargeProgress = 0;
+    STATE.hoveredCard = null;
+    STATE.hoveredCardIdx = null;
+    updateChargeUI();
+
+    // 用中指掌指关节（landmark 9）作为手掌中心，比指尖更稳定
+    const palmX = (1 - landmarks[9].x) * window.innerWidth;
+
+    if (!_gestureDragActive) {
+      // 首帧 → 进入拖拽，记录起点，取消残留惯性
+      if (_drag.momentumRAF) { cancelAnimationFrame(_drag.momentumRAF); _drag.momentumRAF = null; }
+      _gestureDragActive = true;
+      _gestureLastX      = palmX;
+      _drag.velocity     = 0;
+    } else {
+      // 后续帧 → 用 X 增量驱动旋转（和鼠标 _onDragMove 同一套公式）
+      const dx    = palmX - _gestureLastX;
+      const stage = document.getElementById('carousel-stage');
+      const W     = stage ? stage.offsetWidth : (window.innerWidth * 0.85);
+      const dAngle = (dx / W) * 180;
+      _carouselAngle  -= dAngle;
+      _drag.velocity   = dx * 0.5;    // 供 _momentum 使用
+      _gestureLastX    = palmX;
+      if (_cardElsRef) _applyCarousel(_cardElsRef);
+    }
+    return;
+  }
+
+  // ── 不是张掌 → 如果之前在拖拽，收尾惯性 ───────────────────────────────
+  if (_gestureDragActive) {
+    _gestureDragActive = false;
+    _momentum();
+  }
+
+  // ── 食指指向 → 蓄力选牌（原有逻辑）────────────────────────────────────
   if (!isPointingGesture(landmarks)) {
     STATE.chargeProgress = 0; STATE.hoveredCard = null; STATE.hoveredCardIdx = null;
     updateChargeUI(); return;
@@ -642,4 +706,5 @@ function bindMouseFallback() { /* no-op: 已整合进 bindDragRotation */ }
 function clearMouseFallback() {
   if (_drag.momentumRAF) { cancelAnimationFrame(_drag.momentumRAF); _drag.momentumRAF = null; }
   _drag.active = false;
+  _gestureDragActive = false;
 }
