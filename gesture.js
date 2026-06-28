@@ -274,6 +274,31 @@ const STABLE_THRESHOLD = 10;  // 需连续10帧（~0.17s@60fps）命中同一张
 let _gestureHoverIdx = null;         // 当前食指悬停的牌索引（弹起视觉反馈）
 let _hoverTrail = new Map();          // 牌索引 → 首次经过时间戳（经过牌短暂弹起效果）
 const HOVER_TRAIL_DURATION = 800;    // 经过牌弹起持续时间(ms)
+let _hoverHoldFrames = 0;            // 悬停保持帧数（防止命中区振荡：lift→miss→drop→hit）
+const HOVER_HOLD_MIN = 4;            // 悬停至少保持4帧(~67ms)再允许切换，防止弹起/回落振荡
+
+// ── 悬停视觉持续渲染循环 ────────────────────────────────────────────────────
+// 核心问题：食指指向模式下 _applyCarousel 不被持续调用，导致弹起效果冻结
+// 此循环在 hover/trail 活跃时以 60fps 调用 _applyCarousel，确保视觉实时更新
+let _hoverRenderRAF = null;
+
+function _startHoverRender() {
+  if (_hoverRenderRAF) return;  // 已在运行
+  function loop() {
+    // 阶段不对或牌不存在 → 停止
+    if (!_cardElsRef || STATE.phase !== 'selecting') { _hoverRenderRAF = null; return; }
+    // 拖拽/惯性期间它们已在调用 _applyCarousel，跳过避免重复渲染
+    const isExternallyRendered = _drag.active || _drag.momentumRAF || _gestureDragActive;
+    if (!isExternallyRendered) _applyCarousel(_cardElsRef);
+    // 指向模式下永不自杀——持续渲染确保悬停状态实时更新
+    _hoverRenderRAF = requestAnimationFrame(loop);
+  }
+  _hoverRenderRAF = requestAnimationFrame(loop);
+}
+
+function _stopHoverRender() {
+  if (_hoverRenderRAF) { cancelAnimationFrame(_hoverRenderRAF); _hoverRenderRAF = null; }
+}
 
 // ── 手掌拖拽旋转状态 ──────────────────────────────────────────────────────
 let _gestureDragActive = false;   // 当前是否处于手掌拖拽模式
@@ -291,7 +316,9 @@ function onHandResults(results) {
     STATE.hoveredCardIdx = null;
     STATE.chargeProgress = 0;
     _gestureHoverIdx = null;
+    _hoverHoldFrames = 0;
     updateChargeUI();
+    _startHoverRender();  // 渲染回落 + trail 清理
     return;
   }
 
@@ -304,6 +331,7 @@ function onHandResults(results) {
     STATE.hoveredCard = null;
     STATE.hoveredCardIdx = null;
     _gestureHoverIdx = null;
+    _hoverHoldFrames = 0;
     updateChargeUI();
 
     // 用中指掌指关节（landmark 9）作为手掌中心，比指尖更稳定
@@ -334,21 +362,27 @@ function onHandResults(results) {
     _gestureDragActive = false;
     _momentum();
   }
+  // 拖拽结束可能有残留 trail，启动渲染循环清理
+  _startHoverRender();
 
   // ── 食指指向 → 蓄力选牌（原有逻辑）────────────────────────────────────
   if (!isPointingGesture(landmarks)) {
     STATE.chargeProgress = 0; STATE.hoveredCard = null; STATE.hoveredCardIdx = null;
-    _gestureHoverIdx = null;
+    _gestureHoverIdx = null; _hoverHoldFrames = 0;
     updateChargeUI(); return;
   }
   const tipX = (1 - landmarks[8].x) * window.innerWidth;
   const tipY = landmarks[8].y * window.innerHeight;
   const hit  = _hitTestGesture(tipX, tipY);
 
-  // 更新食指悬停索引 + 经过牌 trail（弹起视觉反馈）
-  _gestureHoverIdx = hit;
-  if (hit !== null && !_hoverTrail.has(hit)) {
-    _hoverTrail.set(hit, performance.now());
+  // 直接更新悬停索引 + trail（角度命中不受牌弹起影响，无需防振荡）
+  if (hit !== null) {
+    _gestureHoverIdx = hit;
+    if (!_hoverTrail.has(hit)) _hoverTrail.set(hit, performance.now());
+    _startHoverRender();  // 确保渲染循环运行
+  } else {
+    _gestureHoverIdx = null;
+    _startHoverRender();  // 继续渲染以清理弹起状态
   }
 
   if (hit !== null && hit === lastHitIdx) {
@@ -356,38 +390,44 @@ function onHandResults(results) {
     if (stableCount >= STABLE_THRESHOLD) updateCharge(hit);
   } else {
     stableCount = 1; lastHitIdx = hit;
-    if (hit === null) { STATE.chargeProgress = 0; STATE.hoveredCard = null; STATE.hoveredCardIdx = null; _gestureHoverIdx = null; }
+    if (hit === null) { STATE.chargeProgress = 0; STATE.hoveredCard = null; STATE.hoveredCardIdx = null; }
   }
   updateChargeUI();
 }
 
 function _hitTestGesture(screenX, screenY) {
-  const cardEls = document.querySelectorAll('#card-tray .tarot-card');
-  // 第一轮：收集所有命中（缩紧 padding 减少重叠误触）
-  const candidates = [];
-  for (let i = 0; i < cardEls.length; i++) {
-    if (cardEls[i].classList.contains('selected')) continue;
-    if (cardEls[i].style.visibility === 'hidden') continue;
-    if (parseFloat(cardEls[i].style.opacity || '1') < 0.20) continue;
-    const rect = cardEls[i].getBoundingClientRect();
-    const pad = 4;  // 缩小 padding（原 12px 太宽，密集牌阵易跨牌命中）
-    if (screenX >= rect.left - pad && screenX <= rect.right  + pad &&
-        screenY >= rect.top  - pad && screenY <= rect.bottom + pad) {
-      candidates.push({ el: cardEls[i], idx: i, rect, zIndex: parseInt(cardEls[i].style.zIndex || '0') });
-    }
-  }
-  if (candidates.length === 0) return null;
-  if (candidates.length === 1) return candidates[0].idx;
+  // ── 角度命中检测（不依赖 getBoundingClientRect，避免弹起后命中区漂移）──
+  // 原理：已知每张牌在轮播中的角度位置 + 手指相对于轮播中心的水平偏移，
+  //       可直接算出手指"指向"哪张牌，完全不受牌弹起/缩放影响
+  const stage = document.getElementById('carousel-stage');
+  if (!stage || _totalCards === 0) return null;
+  
+  const stageRect = stage.getBoundingClientRect();
+  const stageCenterX = stageRect.left + stageRect.width / 2;
+  // 手指相对于中心的角度（弧度）
+  const relX = screenX - stageCenterX;
+  const RX = Math.min(stageRect.width * 0.62, 620);
+  // 从中心出发的水平角度 ≈ asin(relX / RX)，转为度
+  const fingerAngleDeg = Math.atan2(relX, RX) * (180 / Math.PI);
 
-  // 多张牌同时命中时（密集区常见）：优先选最靠近正中心角度的牌
-  candidates.sort((a, b) => b.zIndex - a.zIndex);
-  let best = candidates[0];
-  // 用 isFront 数据或角度判断：dataset.isFront='1' 的优先
-  for (const c of candidates) {
-    if (c.el.dataset.isFront === '1') return c.idx;
+  // 找到角度最接近手指的那张牌
+  let bestIdx   = -1;
+  let bestDiff  = Infinity;
+  for (let i = 0; i < _totalCards; i++) {
+    const rawAngle = i * _cardStep - _carouselAngle;
+    const angle    = ((rawAngle % 360) + 540) % 360 - 180;  // [-180, 180]
+    const diff     = Math.abs(angle - fingerAngleDeg);
+    if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
   }
-  // 其次选 zIndex 最高的（最靠前的）
-  return best.idx;
+
+  // 角度差超过半张牌的间距 → 认为没有有效命中（手指离牌阵太远）
+  if (bestDiff > _cardStep * 1.8) return null;
+
+  // 跳过已选中的牌
+  const cardEls = document.querySelectorAll('#card-tray .tarot-card');
+  if (bestIdx < cardEls.length && cardEls[bestIdx].classList.contains('selected')) return null;
+
+  return bestIdx >= 0 ? bestIdx : null;
 }
 
 function updateCharge(cardIdx) {
@@ -737,4 +777,5 @@ function clearMouseFallback() {
   if (_drag.momentumRAF) { cancelAnimationFrame(_drag.momentumRAF); _drag.momentumRAF = null; }
   _drag.active = false;
   _gestureDragActive = false;
+  _stopHoverRender();
 }
