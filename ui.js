@@ -95,14 +95,6 @@ function _applyCarousel(cardEls, instant = false) {
   const RX = Math.min(W * 0.62, 620);  // 水平半径（进一步加宽）
   const RZ = Math.min(W * 0.44, 420);  // 深度半径（进一步加宽）
 
-  // 清理过期的 hover trail（经过牌弹起效果持续时间后移除）
-  const nowTrail = performance.now();
-  if (typeof _hoverTrail !== 'undefined' && _hoverTrail) {
-    for (const [k, t] of _hoverTrail) {
-      if (nowTrail - t > (typeof HOVER_TRAIL_DURATION !== 'undefined' ? HOVER_TRAIL_DURATION : 800)) _hoverTrail.delete(k);
-    }
-  }
-
   const transStr = instant
     ? 'none'
     : 'transform 0.28s cubic-bezier(0.25,0.8,0.35,1), opacity 0.25s ease, box-shadow 0.2s ease';
@@ -129,57 +121,29 @@ function _applyCarousel(cardEls, instant = false) {
     const visible  = Math.abs(angle) < 76;
     const zIdx     = Math.round(depth * 300);
 
-    // ── 手势悬停/经过弹起视觉反馈 ──
-    const now = performance.now();
-    const isGestureHover = (typeof _gestureHoverIdx !== 'undefined' && _gestureHoverIdx === i);
-    const trailFade = (typeof _hoverTrail !== 'undefined' && _hoverTrail && _hoverTrail.has(i))
-      ? Math.max(0, 1 - (now - _hoverTrail.get(i)) / (typeof HOVER_TRAIL_DURATION !== 'undefined' ? HOVER_TRAIL_DURATION : 800))
-      : 0;
+    // ── hover 弹起效果由 gesture.js 直接操作 DOM，_applyCarousel 只管布局 ──
+    // 如果元素上有 .gesture-hover class，额外加 35px 上浮 + 15% 缩放
+    const isGestureHover = el.classList.contains('gesture-hover');
+    const hoverLiftY     = isGestureHover ? -35 : 0;
+    const hoverScaleBoost = isGestureHover ? 0.15 : 0;
 
-    let hoverLiftY = 0, hoverScaleBoost = 0;
-    if (isGestureHover && !el.classList.contains('selected')) {
-      hoverLiftY = -35; hoverScaleBoost = 0.15;
-    } else if (trailFade > 0.05 && !el.classList.contains('selected')) {
-      hoverLiftY = -22 * trailFade; hoverScaleBoost = 0.10 * trailFade;
-    }
-
-    el.style.transition = transStr;
+    el.style.transition = instant ? 'none' : transStr;
     el.style.transform  =
       `translateX(${x}px) translateY(${y + hoverLiftY}px) translateZ(${z}px) rotateY(${selfRotY}deg) scale(${scale + hoverScaleBoost})`;
     el.style.opacity    = visible ? String(opacity) : '0';
     el.style.zIndex     = String(zIdx + (isGestureHover ? 50 : 0));
     el.style.visibility = visible ? 'visible' : 'hidden';
 
-    // 视觉效果优先级：手势悬停 > 经过弹起 > 正中牌 > 默认
+    // 视觉效果优先级：手势悬停 > 正中牌 > 默认（trail 效果由 gesture.js 直接操作 DOM）
     const isFront = Math.abs(angle) < _cardStep * 0.6;
     el.dataset.isFront = isFront ? '1' : '0';
-    if (!el.classList.contains('selected')) {
-      if (isGestureHover) {
-        el.style.boxShadow = '0 0 0 2px rgba(255,230,160,0.9), 0 0 30px 8px rgba(255,230,160,0.5)';
-        el.style.filter    = 'brightness(1.35)';
-      } else if (trailFade > 0.05) {
-        el.style.boxShadow = `0 0 0 1px rgba(201,169,110,${0.5*trailFade}), 0 0 ${Math.round(18*trailFade)}px ${Math.round(4*trailFade)}px rgba(201,169,110,${0.3*trailFade})`;
-        el.style.filter    = `brightness(${1 + 0.15*trailFade})`;
-      } else if (isFront) {
+    if (!el.classList.contains('selected') && !isGestureHover) {
+      if (isFront) {
         el.style.boxShadow = '0 0 0 1.5px rgba(201,169,110,0.8), 0 8px 40px rgba(201,169,110,0.35)';
         el.style.filter    = 'brightness(1.1)';
       } else {
         el.style.boxShadow = 'none';
         el.style.filter    = '';
-      }
-      // 牌名标签：手势悬停时显示
-      const labelEl = el.querySelector('.card-label');
-      if (labelEl) {
-        if (isGestureHover) {
-          labelEl.style.opacity = '1';
-          labelEl.style.transform = 'translateY(-4px)';
-        } else if (trailFade > 0.05) {
-          labelEl.style.opacity = String(trailFade * 0.8);
-          labelEl.style.transform = `translateY(-${2*trailFade}px)`;
-        } else {
-          labelEl.style.opacity = '';
-          labelEl.style.transform = '';
-        }
       }
     }
   });

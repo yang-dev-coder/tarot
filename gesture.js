@@ -270,34 +270,67 @@ function isOpenPalmGesture(landmarks) {
 }
 
 let stableCount = 0, lastHitIdx = null;
-const STABLE_THRESHOLD = 10;  // 需连续10帧（~0.17s@60fps）命中同一张牌才开始蓄力（原3帧太快易误触）
-let _gestureHoverIdx = null;         // 当前食指悬停的牌索引（弹起视觉反馈）
-let _hoverTrail = new Map();          // 牌索引 → 首次经过时间戳（经过牌短暂弹起效果）
-const HOVER_TRAIL_DURATION = 800;    // 经过牌弹起持续时间(ms)
-let _hoverHoldFrames = 0;            // 悬停保持帧数（防止命中区振荡：lift→miss→drop→hit）
-const HOVER_HOLD_MIN = 4;            // 悬停至少保持4帧(~67ms)再允许切换，防止弹起/回落振荡
+const STABLE_THRESHOLD = 10;  // 需连续10帧（~0.17s@60fps）命中同一张牌才开始蓄力
 
-// ── 悬停视觉持续渲染循环 ────────────────────────────────────────────────────
-// 核心问题：食指指向模式下 _applyCarousel 不被持续调用，导致弹起效果冻结
-// 此循环在 hover/trail 活跃时以 60fps 调用 _applyCarousel，确保视觉实时更新
-let _hoverRenderRAF = null;
+// ── 手势悬停 DOM 直接操作（事件驱动，不依赖 RAF 渲染循环）─────────────────────
+// 核心思路：手指命中牌 → 立刻给该 DOM 元素加 .gesture-hover + 弹起样式
+//           手指离开/换牌 → 立刻清除上一个元素的样式，加到新元素上
+//           经过牌(trail) → setTimeout 自动清除
+// 优点：清理是确定性的（手指离开 → 立刻 reset），不依赖任何循环
+let _hoveredEl = null;            // 当前悬停的 DOM 元素
 
-function _startHoverRender() {
-  if (_hoverRenderRAF) return;  // 已在运行
-  function loop() {
-    // 阶段不对或牌不存在 → 停止
-    if (!_cardElsRef || STATE.phase !== 'selecting') { _hoverRenderRAF = null; return; }
-    // 拖拽/惯性期间它们已在调用 _applyCarousel，跳过避免重复渲染
-    const isExternallyRendered = _drag.active || _drag.momentumRAF || _gestureDragActive;
-    if (!isExternallyRendered) _applyCarousel(_cardElsRef);
-    // 指向模式下永不自杀——持续渲染确保悬停状态实时更新
-    _hoverRenderRAF = requestAnimationFrame(loop);
-  }
-  _hoverRenderRAF = requestAnimationFrame(loop);
+function _applyHoverEl(el) {
+  if (!el || el.classList.contains('selected')) return;
+  el.classList.add('gesture-hover');
+  el.style.boxShadow = '0 0 0 2px rgba(255,230,160,0.9), 0 0 30px 8px rgba(255,230,160,0.5)';
+  el.style.filter    = 'brightness(1.35)';
 }
 
-function _stopHoverRender() {
-  if (_hoverRenderRAF) { cancelAnimationFrame(_hoverRenderRAF); _hoverRenderRAF = null; }
+function _clearHoverEl(el) {
+  if (!el) return;
+  el.classList.remove('gesture-hover');
+  el.style.boxShadow = '';
+  el.style.filter    = '';
+}
+
+// 清除当前悬停（手指离开/切换手势时调用）
+function _resetCurrentHover() {
+  if (_hoveredEl) {
+    _clearHoverEl(_hoveredEl);
+    _hoveredEl = null;
+    // 触发一次 _applyCarousel 恢复正常样式（isFront 高亮等）
+    if (_cardElsRef) _applyCarousel(_cardElsRef);
+  }
+}
+
+// 食指命中新牌 → 清旧 + 加新
+function _switchHoverTo(newIdx) {
+  const cardEls = _cardElsRef;
+  if (!cardEls) return;
+  const newEl = (newIdx >= 0 && newIdx < cardEls.length) ? cardEls[newIdx] : null;
+  if (newEl === _hoveredEl) return;  // 同一张牌，无需切换
+  _clearHoverEl(_hoveredEl);         // 清除旧牌弹起
+  _applyHoverEl(newEl);              // 新牌弹起
+  _hoveredEl = newEl;
+  // 清旧后恢复其他牌的正常样式
+  if (_cardElsRef) _applyCarousel(_cardElsRef);
+  // 经过牌 trail：短暂弹起后自动回落（setTimeout 事件驱动，不依赖循环）
+  if (newEl && !newEl.classList.contains('selected')) {
+    const trailEl = newEl;           // 闭包引用，防异步时序问题
+    trailEl.classList.add('gesture-trail');
+    trailEl.style.boxShadow = '0 0 0 1px rgba(201,169,110,0.5), 0 0 18px 4px rgba(201,169,110,0.3)';
+    trailEl.style.filter    = 'brightness(1.15)';
+    setTimeout(() => {
+      trailEl.classList.remove('gesture-trail');
+      // trail 清理时如果不是当前悬停牌，才清除样式
+      if (trailEl !== _hoveredEl) {
+        trailEl.style.boxShadow = '';
+        trailEl.style.filter    = '';
+        // trail 清理后也需要恢复正常样式
+        if (_cardElsRef) _applyCarousel(_cardElsRef);
+      }
+    }, 600);
+  }
 }
 
 // ── 手掌拖拽旋转状态 ──────────────────────────────────────────────────────
@@ -315,10 +348,8 @@ function onHandResults(results) {
     STATE.hoveredCard = null;
     STATE.hoveredCardIdx = null;
     STATE.chargeProgress = 0;
-    _gestureHoverIdx = null;
-    _hoverHoldFrames = 0;
+    _resetCurrentHover();        // 立刻清除悬停元素样式
     updateChargeUI();
-    _startHoverRender();  // 渲染回落 + trail 清理
     return;
   }
 
@@ -330,8 +361,7 @@ function onHandResults(results) {
     STATE.chargeProgress = 0;
     STATE.hoveredCard = null;
     STATE.hoveredCardIdx = null;
-    _gestureHoverIdx = null;
-    _hoverHoldFrames = 0;
+    _resetCurrentHover();        // 立刻清除悬停元素样式
     updateChargeUI();
 
     // 用中指掌指关节（landmark 9）作为手掌中心，比指尖更稳定
@@ -348,9 +378,9 @@ function onHandResults(results) {
       const dx    = palmX - _gestureLastX;
       const stage = document.getElementById('carousel-stage');
       const W     = stage ? stage.offsetWidth : (window.innerWidth * 0.85);
-      const dAngle = (dx / W) * 180;
+      const dAngle = (dx / W) * 90;   // 降速：手掌移过整个屏幕宽度只转90°（原180太快）
       _carouselAngle  -= dAngle;
-      _drag.velocity   = dx * 0.5;    // 供 _momentum 使用
+      _drag.velocity   = dx * 0.3;    // 供 _momentum 使用（同步降速 0.5→0.3）
       _gestureLastX    = palmX;
       if (_cardElsRef) _applyCarousel(_cardElsRef);
     }
@@ -362,27 +392,22 @@ function onHandResults(results) {
     _gestureDragActive = false;
     _momentum();
   }
-  // 拖拽结束可能有残留 trail，启动渲染循环清理
-  _startHoverRender();
 
-  // ── 食指指向 → 蓄力选牌（原有逻辑）────────────────────────────────────
+  // ── 食指指向 → 蓄力选牌 ────────────────────────────────────────────────
   if (!isPointingGesture(landmarks)) {
     STATE.chargeProgress = 0; STATE.hoveredCard = null; STATE.hoveredCardIdx = null;
-    _gestureHoverIdx = null; _hoverHoldFrames = 0;
+    _resetCurrentHover();        // 立刻清除悬停元素样式
     updateChargeUI(); return;
   }
   const tipX = (1 - landmarks[8].x) * window.innerWidth;
   const tipY = landmarks[8].y * window.innerHeight;
   const hit  = _hitTestGesture(tipX, tipY);
 
-  // 直接更新悬停索引 + trail（角度命中不受牌弹起影响，无需防振荡）
+  // 事件驱动 hover：命中新牌 → _switchHoverTo 清旧+加新；未命中 → 清除
   if (hit !== null) {
-    _gestureHoverIdx = hit;
-    if (!_hoverTrail.has(hit)) _hoverTrail.set(hit, performance.now());
-    _startHoverRender();  // 确保渲染循环运行
+    _switchHoverTo(hit);
   } else {
-    _gestureHoverIdx = null;
-    _startHoverRender();  // 继续渲染以清理弹起状态
+    _resetCurrentHover();
   }
 
   if (hit !== null && hit === lastHitIdx) {
@@ -777,5 +802,5 @@ function clearMouseFallback() {
   if (_drag.momentumRAF) { cancelAnimationFrame(_drag.momentumRAF); _drag.momentumRAF = null; }
   _drag.active = false;
   _gestureDragActive = false;
-  _stopHoverRender();
+  _resetCurrentHover();
 }
