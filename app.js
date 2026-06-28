@@ -10,6 +10,14 @@
 // ── 摄像头授权 ─────────────────────────────────────────────────────────────
 
 async function requestCamera() {
+  // 手机端：完全跳过摄像头，只用触摸交互
+  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.innerWidth < 768;
+  if (isMobile) {
+    STATE.cameraReady    = false;
+    STATE.gestureEnabled = false;
+    updateGestureHint();
+    return;
+  }
   const TIMEOUT = 8_000;
   try {
     const streamPromise = navigator.mediaDevices.getUserMedia({

@@ -157,7 +157,10 @@ function _cardToCanvasXY(cardEl) {
 function updateGestureHint() {
   const el = document.getElementById('gesture-hint');
   if (!el) return;
-  if (STATE.gestureEnabled) {
+  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.innerWidth < 768;
+  if (isMobile) {
+    el.textContent = '← 左右滑动旋转牌阵 · 点击选牌 →';
+  } else if (STATE.gestureEnabled) {
     el.textContent = '✋ 张开手掌左右移动旋转牌阵 · ☝️ 食指悬停蓄力选中';
   } else {
     el.textContent = '← 左右拖拽旋转牌阵 · 点击选牌 →';
