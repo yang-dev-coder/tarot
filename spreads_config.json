@@ -1,4 +1,13 @@
 {
+  "defaults": {
+    "romance":      "three_timeline",
+    "career":       "three_timeline",
+    "wealth":       "three_timeline",
+    "decision":     "three_options",
+    "growth":       "five_diamond",
+    "relationship": "three_relationship",
+    "general":      "three_timeline"
+  },
   "three_timeline": {
     "name": "时间轴三牌",
     "description": "过去影响、当前状态、未来走向",

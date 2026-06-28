@@ -32,6 +32,8 @@ class TarotEngine:
         if os.path.exists(spreads_config_path):
             with open(spreads_config_path, encoding="utf-8") as f:
                 self.spreads = json.load(f)
+            # 提取 scene_type → spread_key 默认映射（唯一权威来源，独立于牌阵定义）
+            self.scene_defaults = self.spreads.pop("defaults", {})
         else:
             print(f"⚠️  未找到 {spreads_config_path}，使用内置默认牌阵。")
             self.spreads = {

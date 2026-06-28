@@ -106,11 +106,48 @@ class AgentPipeline:
         """
         分析用户意图，返回 { scene_type, spread_key, emotional_tone, sub_question }
         供 main_console 在抽牌前调用，驱动牌阵路由。
+
+        路由架构（三层，职责严格分离）：
+          LLM → 提议（scene_type + spread_key 候选，非最终裁决）
+          Config（spreads_config scene_tags）→ 合法牌阵校验（唯一权威）
+          Config（spreads_config defaults）→ 默认牌阵兜底（唯一权威）
         """
-        available_spreads = (
-            list(self.engine.spreads.keys()) if self.engine else
-            ["three_timeline", "three_relationship", "three_options",
-             "five_diamond", "single", "celtic"]
+
+        # ── 从 spreads_config 动态构建路由信息（唯一权威来源）──
+        if self.engine:
+            available_spreads = list(self.engine.spreads.keys())
+            scene_defaults    = self.engine.scene_defaults
+            scene_valid = {}
+            for sk, sd in self.engine.spreads.items():
+                for tag in sd.get("scene_tags", []):
+                    scene_valid.setdefault(tag, []).append(sk)
+        else:
+            available_spreads = [
+                "three_timeline", "three_relationship", "three_options",
+                "five_diamond", "single", "celtic"
+            ]
+            scene_defaults = {
+                "romance": "three_timeline", "career": "three_timeline",
+                "wealth": "three_timeline", "decision": "three_options",
+                "growth": "five_diamond", "relationship": "three_relationship",
+                "general": "three_timeline",
+            }
+            scene_valid = {
+                "romance": ["three_timeline", "three_relationship", "celtic"],
+                "career": ["three_timeline", "five_diamond", "celtic"],
+                "wealth": ["three_timeline"],
+                "decision": ["three_options", "five_diamond"],
+                "growth": ["three_timeline", "five_diamond", "celtic"],
+                "relationship": ["three_relationship", "celtic"],
+                "general": ["three_timeline", "single", "five_diamond", "celtic"],
+            }
+
+        # ── 动态生成 prompt 中的默认映射规则文本 ──
+        scene_order = ["romance", "career", "wealth", "decision",
+                       "growth", "relationship", "general"]
+        default_rules = "\n".join(
+            f"    {st} → {scene_defaults.get(st, 'three_timeline')}"
+            for st in scene_order
         )
 
         system_0 = (
@@ -125,15 +162,16 @@ class AgentPipeline:
             "  relationship → 非恋爱关系：友情/家庭/合作\n"
             "  general      → 无法分类，使用通用解读\n\n"
 
-            "【spread_key 路由规则】（从以下可用牌阵中选择一个）\n"
-            f"  可用牌阵：{available_spreads}\n"
-            "  romance + 双方互动 → three_relationship\n"
-            "  romance + 走向趋势 → three_timeline\n"
-            "  decision + 两条路径 → three_options\n"
-            "  career/growth + 复杂 → five_diamond\n"
-            "  复杂/综合问题 → celtic\n"
-            "  简单问答/每日 → single\n"
-            "  其他 → three_timeline\n\n"
+            "【spread_key 路由规则】（必须严格按以下默认映射选择牌阵）\n"
+            f"  可用牌阵：{available_spreads}\n\n"
+            "  scene_type → 默认牌阵（无偏离条件时必须使用默认）：\n"
+            f"{default_rules}\n\n"
+            "  仅在以下条件满足时，才允许偏离默认牌阵：\n"
+            "    romance + 用户明确提到'双方互动/他怎么看我/我们之间' → three_relationship\n"
+            "    career/growth + 用户明确提到'多个方向/很复杂' → five_diamond\n"
+            "    用户明确说'随便看看/每日一牌/简单指引' → single\n"
+            "    用户问题描述涉及4+个维度且极其复杂 → celtic\n\n"
+            "  无上述偏离条件时，必须使用对应 scene_type 的默认牌阵。\n\n"
 
             "【emotional_tone 可选值】\n"
             "  anxious（焦虑）/ hopeful（期待）/ confused（迷茫）/ resigned（接受）/ neutral\n\n"
@@ -152,8 +190,16 @@ class AgentPipeline:
             "emotional_tone":"neutral",
             "sub_question":  user_input,
         })
-        if result.get("spread_key") not in available_spreads:
-            result["spread_key"] = "three_timeline"
+
+        # ── 代码层校验：spread_key 是否属于该 scene_type 的合法牌阵 ──
+        scene    = result.get("scene_type", "general")
+        proposed = result.get("spread_key", "")
+        valid    = scene_valid.get(scene, available_spreads)
+
+        if proposed not in valid or proposed not in available_spreads:
+            # 偏离不合法 → 强制回退到该 scene_type 的默认牌阵（来自 config）
+            result["spread_key"] = scene_defaults.get(scene, "three_timeline")
+
         return result
 
     # ── 人类反馈环 ────────────────────────────────────────────────────────────
