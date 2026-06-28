@@ -271,6 +271,9 @@ function isOpenPalmGesture(landmarks) {
 
 let stableCount = 0, lastHitIdx = null;
 const STABLE_THRESHOLD = 10;  // 需连续10帧（~0.17s@60fps）命中同一张牌才开始蓄力（原3帧太快易误触）
+let _gestureHoverIdx = null;         // 当前食指悬停的牌索引（弹起视觉反馈）
+let _hoverTrail = new Map();          // 牌索引 → 首次经过时间戳（经过牌短暂弹起效果）
+const HOVER_TRAIL_DURATION = 800;    // 经过牌弹起持续时间(ms)
 
 // ── 手掌拖拽旋转状态 ──────────────────────────────────────────────────────
 let _gestureDragActive = false;   // 当前是否处于手掌拖拽模式
@@ -287,6 +290,7 @@ function onHandResults(results) {
     STATE.hoveredCard = null;
     STATE.hoveredCardIdx = null;
     STATE.chargeProgress = 0;
+    _gestureHoverIdx = null;
     updateChargeUI();
     return;
   }
@@ -295,10 +299,11 @@ function onHandResults(results) {
 
   // ── 优先检测张开手掌 → 拖拽旋转 ──────────────────────────────────────
   if (isOpenPalmGesture(landmarks)) {
-    // 切换到手掌模式 → 清除蓄力选牌状态
+    // 切换到手掌模式 → 清除蓄力选牌状态 + 食指悬停
     STATE.chargeProgress = 0;
     STATE.hoveredCard = null;
     STATE.hoveredCardIdx = null;
+    _gestureHoverIdx = null;
     updateChargeUI();
 
     // 用中指掌指关节（landmark 9）作为手掌中心，比指尖更稳定
@@ -333,18 +338,25 @@ function onHandResults(results) {
   // ── 食指指向 → 蓄力选牌（原有逻辑）────────────────────────────────────
   if (!isPointingGesture(landmarks)) {
     STATE.chargeProgress = 0; STATE.hoveredCard = null; STATE.hoveredCardIdx = null;
+    _gestureHoverIdx = null;
     updateChargeUI(); return;
   }
   const tipX = (1 - landmarks[8].x) * window.innerWidth;
   const tipY = landmarks[8].y * window.innerHeight;
   const hit  = _hitTestGesture(tipX, tipY);
 
+  // 更新食指悬停索引 + 经过牌 trail（弹起视觉反馈）
+  _gestureHoverIdx = hit;
+  if (hit !== null && !_hoverTrail.has(hit)) {
+    _hoverTrail.set(hit, performance.now());
+  }
+
   if (hit !== null && hit === lastHitIdx) {
     stableCount++;
     if (stableCount >= STABLE_THRESHOLD) updateCharge(hit);
   } else {
     stableCount = 1; lastHitIdx = hit;
-    if (hit === null) { STATE.chargeProgress = 0; STATE.hoveredCard = null; STATE.hoveredCardIdx = null; }
+    if (hit === null) { STATE.chargeProgress = 0; STATE.hoveredCard = null; STATE.hoveredCardIdx = null; _gestureHoverIdx = null; }
   }
   updateChargeUI();
 }
