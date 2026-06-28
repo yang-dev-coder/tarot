@@ -270,6 +270,7 @@ function isOpenPalmGesture(landmarks) {
 }
 
 let stableCount = 0, lastHitIdx = null;
+const STABLE_THRESHOLD = 10;  // 需连续10帧（~0.17s@60fps）命中同一张牌才开始蓄力（原3帧太快易误触）
 
 // ── 手掌拖拽旋转状态 ──────────────────────────────────────────────────────
 let _gestureDragActive = false;   // 当前是否处于手掌拖拽模式
@@ -340,7 +341,7 @@ function onHandResults(results) {
 
   if (hit !== null && hit === lastHitIdx) {
     stableCount++;
-    if (stableCount >= 3) updateCharge(hit);
+    if (stableCount >= STABLE_THRESHOLD) updateCharge(hit);
   } else {
     stableCount = 1; lastHitIdx = hit;
     if (hit === null) { STATE.chargeProgress = 0; STATE.hoveredCard = null; STATE.hoveredCardIdx = null; }
@@ -350,14 +351,31 @@ function onHandResults(results) {
 
 function _hitTestGesture(screenX, screenY) {
   const cardEls = document.querySelectorAll('#card-tray .tarot-card');
+  // 第一轮：收集所有命中（缩紧 padding 减少重叠误触）
+  const candidates = [];
   for (let i = 0; i < cardEls.length; i++) {
     if (cardEls[i].classList.contains('selected')) continue;
+    if (cardEls[i].style.visibility === 'hidden') continue;
+    if (parseFloat(cardEls[i].style.opacity || '1') < 0.20) continue;
     const rect = cardEls[i].getBoundingClientRect();
-    const pad  = 12;
+    const pad = 4;  // 缩小 padding（原 12px 太宽，密集牌阵易跨牌命中）
     if (screenX >= rect.left - pad && screenX <= rect.right  + pad &&
-        screenY >= rect.top  - pad && screenY <= rect.bottom + pad) return i;
+        screenY >= rect.top  - pad && screenY <= rect.bottom + pad) {
+      candidates.push({ el: cardEls[i], idx: i, rect, zIndex: parseInt(cardEls[i].style.zIndex || '0') });
+    }
   }
-  return null;
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0].idx;
+
+  // 多张牌同时命中时（密集区常见）：优先选最靠近正中心角度的牌
+  candidates.sort((a, b) => b.zIndex - a.zIndex);
+  let best = candidates[0];
+  // 用 isFront 数据或角度判断：dataset.isFront='1' 的优先
+  for (const c of candidates) {
+    if (c.el.dataset.isFront === '1') return c.idx;
+  }
+  // 其次选 zIndex 最高的（最靠前的）
+  return best.idx;
 }
 
 function updateCharge(cardIdx) {
@@ -664,7 +682,7 @@ function _handleClick(clientX, clientY) {
     .filter(el => {
       if (el.classList.contains('selected'))       return false;
       if (el.style.visibility === 'hidden')        return false;
-      if (parseFloat(el.style.opacity || '1') < 0.15) return false;
+      if (parseFloat(el.style.opacity || '1') < 0.20) return false;  // 过滤极淡的侧牌
       const rect = el.getBoundingClientRect();
       return (
         clientX >= rect.left && clientX <= rect.right &&

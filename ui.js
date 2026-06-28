@@ -91,9 +91,9 @@ function _applyCarousel(cardEls, instant = false) {
   const stage = document.getElementById('carousel-stage');
   const W = stage ? stage.offsetWidth  : (window.innerWidth  * 0.9);
 
-  // 椭圆轨道半径
-  const RX = Math.min(W * 0.42, 320);  // 水平半径
-  const RZ = Math.min(W * 0.28, 220);  // 深度半径
+  // 椭圆轨道半径（加大以减少牌间重叠，改善手势选牌精度）
+  const RX = Math.min(W * 0.62, 620);  // 水平半径（进一步加宽）
+  const RZ = Math.min(W * 0.44, 420);  // 深度半径（进一步加宽）
 
   const transStr = instant
     ? 'none'
@@ -109,16 +109,16 @@ function _applyCarousel(cardEls, instant = false) {
     const z  = Math.cos(rad) * RZ - RZ;         // 最前 z=0，向后 z=-2RZ
     const y  = -Math.abs(Math.sin(rad)) * 20;   // 轻微弧度上扬
 
-    // 深度 → scale / opacity
+    // 深度 → scale / opacity（更陡的衰减，减少侧面可见牌数量，降低误触）
     const depth   = (z + RZ * 2) / (RZ * 2);   // [0,1]  0=最后 1=最前
-    const scale   = 0.50 + depth * 0.50;
-    const opacity = 0.22 + depth * 0.78;
+    const scale   = 0.42 + depth * 0.58;
+    const opacity = Math.max(0.06, depth * depth);  // 二次衰减，侧牌更快消失
 
     // 侧面牌朝向圆心旋转
     const selfRotY = -angle * 0.28;
 
-    // 背面不可见（|angle|>90 实际已不可见，但依旧 visibility 控制节省渲染）
-    const visible  = Math.abs(angle) < 94;
+    // 背面不可见（收紧可见范围，只让正前方约±75°内的牌参与交互）
+    const visible  = Math.abs(angle) < 76;
     const zIdx     = Math.round(depth * 300);
 
     el.style.transition = transStr;
@@ -168,7 +168,7 @@ function layoutCards(cardEls, _skipAnim = false) {
   Object.assign(stage.style, {
     position:        'relative',
     width:           '100%',
-    height:          '320px',
+    height:          '420px',
     perspective:     '900px',
     perspectiveOrigin: '50% 50%',
     overflow:        'hidden',
